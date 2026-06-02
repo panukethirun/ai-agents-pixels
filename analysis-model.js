@@ -6,32 +6,32 @@
       id: 'momentum_breakout',
       label: 'Momentum Breakout',
       stance: 'bullish',
-      baseDecision: 'CALL',
+      baseDecision: 'LONG',
       riskLevel: 'Medium',
       setup: 'price is pressing through a clean resistance zone with expanding momentum',
-      catalyst: 'short-term flow supports continuation if volume holds',
-      optionsNote: 'near-the-money calls keep the thesis simple while limiting premium stretch',
-      dataQuality: 'price and options snapshots align cleanly',
+      catalyst: 'short-term flow supports continuation if spot volume holds',
+      positionNote: 'a measured spot long keeps the thesis simple while capping downside',
+      dataQuality: 'price and order-book snapshots align cleanly',
       confidence: 68,
       riskWarnings: [
         'Breakouts can fail quickly if volume fades after entry.',
-        'Premium decay matters if the move stalls for more than two sessions.',
+        'Crypto reverses hard on low liquidity — keep a stop below the breakout level.',
       ],
     },
     {
-      id: 'earnings_volatility',
-      label: 'Earnings Volatility',
+      id: 'event_volatility',
+      label: 'Event Volatility',
       stance: 'mixed',
-      baseDecision: 'CALL',
+      baseDecision: 'LONG',
       riskLevel: 'High',
-      setup: 'earnings timing can create a sharp move, but direction quality is not confirmed',
-      catalyst: 'event risk is high and implied volatility is elevated',
-      optionsNote: 'contracts price in a large move, so the setup needs unusually strong conviction',
-      dataQuality: 'news flow is mixed and IV crush risk is material',
+      setup: 'a token unlock / listing / macro print can create a sharp move, but direction is not confirmed',
+      catalyst: 'event risk is high and short-term volatility is elevated',
+      positionNote: 'the market is pricing a large move, so the setup needs unusually strong conviction',
+      dataQuality: 'news flow is mixed and post-event reversal risk is material',
       confidence: 54,
       blockTrade: true,
       riskWarnings: [
-        'IV is elevated before the event and can crush premium after the announcement.',
+        'Volatility spikes before the event and can whipsaw both sides after it.',
         'Direction risk is too high without a stronger edge.',
       ],
     },
@@ -39,32 +39,32 @@
       id: 'pullback_reversal',
       label: 'Pullback Reversal',
       stance: 'bullish',
-      baseDecision: 'CALL',
+      baseDecision: 'LONG',
       riskLevel: 'Medium',
       setup: 'price is pulling back into a prior support area after a stronger trend',
       catalyst: 'a bounce is possible if buyers defend the support zone',
-      optionsNote: 'calls need confirmation because sideways action can drain premium',
+      positionNote: 'a long needs confirmation because sideways chop can bleed a leveraged position',
       dataQuality: 'trend context is useful but reversal confirmation is still early',
       confidence: 62,
       riskWarnings: [
         'A support break invalidates the reversal thesis.',
-        'Entering before confirmation increases theta risk.',
+        'Entering before confirmation raises the odds of getting stopped out.',
       ],
     },
     {
       id: 'bearish_breakdown',
       label: 'Bearish Breakdown',
       stance: 'bearish',
-      baseDecision: 'PUT',
+      baseDecision: 'SHORT',
       riskLevel: 'Medium',
       setup: 'price is losing support and sellers are controlling the tape',
       catalyst: 'weak momentum can accelerate if the breakdown confirms',
-      optionsNote: 'near-the-money puts fit the direction, but entry quality still matters',
+      positionNote: 'a short fits the direction, but entry quality and funding cost still matter',
       dataQuality: 'price action and risk signals point in the same direction',
       confidence: 66,
       riskWarnings: [
-        'A fast reclaim of support can trap late put entries.',
-        'Put premiums can expand quickly after the first breakdown candle.',
+        'A fast reclaim of support can squeeze late short entries.',
+        'Short squeezes are violent in crypto — size down and respect the stop.',
       ],
     },
   ];
@@ -72,7 +72,7 @@
   const AGENT_STAGES = [
     {agentId:'a1', name:'Pip',  role:'Lead Market Analyst',      stage:'Market Setup',        passesTo:'Iris'},
     {agentId:'a4', name:'Iris', role:'Research Analyst',         stage:'Catalyst Check',      passesTo:'Mara'},
-    {agentId:'a2', name:'Mara', role:'Options Quant Strategist', stage:'Options Structure',   passesTo:'Dex'},
+    {agentId:'a2', name:'Mara', role:'Position Strategist',      stage:'Position Sizing',     passesTo:'Dex'},
     {agentId:'a3', name:'Dex',  role:'Risk Manager',             stage:'Risk Gate',           passesTo:'Otis'},
     {agentId:'a5', name:'Otis', role:'Data/API Operator',        stage:'Data Quality',        passesTo:'Fern'},
     {agentId:'a6', name:'Fern', role:'Signal & Memory Auditor',  stage:'Final Audit',         passesTo:null},
@@ -119,15 +119,15 @@
         ],
       },
       Mara: {
-        summary: `Options structure: ${scenario.optionsNote}.`,
+        summary: `Position plan: ${scenario.positionNote}.`,
         findings: [
-          'Budget range remains $50-$200 for the candidate idea.',
+          'Position size stays modest: $50-$200 notional per idea.',
           'Holding window stays inside <= 15 days.',
         ],
       },
       Dex: {
         summary: scenario.blockTrade
-          ? 'Risk gate blocks the trade until premium and direction risk improve.'
+          ? 'Risk gate blocks the trade until liquidity and direction risk improve.'
           : 'Risk gate allows the thesis to continue with controlled sizing.',
         findings: [
           `Risk level is ${scenario.riskLevel}.`,
@@ -188,9 +188,28 @@
     };
   }
 
+  // Claude-authored brief (if loaded) weaves ticker-specific copy into the workflow.
+  function claudeBriefFor(ticker){
+    const lib = root.AnalysisClaude;
+    return (lib && typeof lib.getBrief === 'function') ? lib.getBrief(ticker) : null;
+  }
+
+  function applyBrief(scenario, brief){
+    if(!brief) return scenario;
+    return Object.assign({}, scenario, {
+      stance: brief.stance || scenario.stance,
+      confidence: brief.confidence || scenario.confidence,
+      setup: brief.setup || scenario.setup,
+      catalyst: brief.catalyst || scenario.catalyst,
+      positionNote: brief.positionNote || scenario.positionNote,
+      dataQuality: brief.dataQuality || scenario.dataQuality,
+    });
+  }
+
   function createWorkflowAnalysis({ticker, scenarioId, id, now}){
     const normalizedTicker = normalizeTicker(ticker);
-    const scenario = findScenario(scenarioId);
+    const brief = claudeBriefFor(normalizedTicker);
+    const scenario = applyBrief(findScenario(scenarioId), brief);
     const reports = AGENT_STAGES.map((stage) => reportFor(stage, normalizedTicker, scenario));
 
     return {
@@ -199,6 +218,7 @@
       ticker: normalizedTicker,
       scenarioId: scenario.id,
       scenarioLabel: scenario.label,
+      claudeBrief: brief || null,
       reports,
       finalThesis: buildFinalThesis(normalizedTicker, scenario, reports),
     };

@@ -1,0 +1,6 @@
+{
+  "_readme": "คัดลอกไฟล์นี้เป็น binance.config.json แล้วใส่คีย์ของคุณ (binance.config.json ถูก .gitignore ไว้แล้ว). ใช้คีย์จาก Binance FUTURES TESTNET เท่านั้น: https://testnet.binancefuture.com  → ปุ่ม API Key. อย่าใช้คีย์บัญชีจริง.",
+  "testnet": true,
+  "apiKey": "PUT_YOUR_BINANCE_FUTURES_TESTNET_API_KEY_HERE",
+  "apiSecret": "PUT_YOUR_BINANCE_FUTURES_TESTNET_SECRET_HERE"
+}

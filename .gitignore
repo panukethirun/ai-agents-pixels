@@ -1,0 +1,10 @@
+# ความลับ — อย่า commit เด็ดขาด (มี API key/secret ของ Binance testnet)
+binance.config.json
+
+# local Claude Code settings (machine-specific)
+.claude/settings.local.json
+
+# misc
+node_modules/
+*.log
+.DS_Store

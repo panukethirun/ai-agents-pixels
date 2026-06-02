@@ -24,7 +24,7 @@ function ScenarioPicker({value, onChange}){
 }
 
 function AnalysisForm({onCreateAnalysis}){
-  const [ticker, setTicker] = React.useState('NVDA');
+  const [ticker, setTicker] = React.useState('BTC');
   const [scenarioId, setScenarioId] = React.useState('momentum_breakout');
   const [error, setError] = React.useState('');
 
@@ -49,7 +49,7 @@ function AnalysisForm({onCreateAnalysis}){
       <div className="analysis-input-row">
         <label className="analysis-field">
           <span>Ticker</span>
-          <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} placeholder="NVDA" />
+          <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} placeholder="BTC" />
         </label>
         <button className="btn on analysis-run" type="submit">Run Workflow</button>
       </div>
@@ -101,6 +101,26 @@ function AgentReport({report, tint}){
   );
 }
 
+function ClaudeBrief({brief}){
+  if(!brief) return null;
+  return (
+    <div className={'claude-brief '+brief.stance}>
+      <div className="claude-brief-head">
+        <span className="claude-tag">✨ Claude Market Brief</span>
+        <span className="claude-meta mono">{brief.name} · {brief.sector}</span>
+      </div>
+      <p className="claude-brief-body">{brief.brief}</p>
+      <ul className="claude-brief-obs">
+        {brief.observations.map((note, index) => <li key={index}>{note}</li>)}
+      </ul>
+      <div className="claude-brief-foot mono">
+        <span className={'stance '+brief.stance}>{brief.stance}</span>
+        <span>conviction {brief.confidence}%</span>
+      </div>
+    </div>
+  );
+}
+
 function FinalThesis({analysis}){
   const thesis = analysis.finalThesis;
   return (
@@ -115,7 +135,7 @@ function FinalThesis({analysis}){
       <div className="thesis-stats">
         <div><span>Confidence</span><strong>{thesis.confidence}%</strong></div>
         <div><span>Risk</span><strong>{thesis.riskLevel}</strong></div>
-        <div><span>Budget</span><strong>{thesis.budgetRange}</strong></div>
+        <div><span>Size</span><strong>{thesis.budgetRange}</strong></div>
         <div><span>Window</span><strong>{thesis.holdingWindow}</strong></div>
       </div>
       <p>{thesis.rationale}</p>
@@ -143,7 +163,10 @@ function Analysis({analyses, activeAnalysisId, setActiveAnalysisId, onCreateAnal
       <div className="analysis-top">
         <div>
           <h2>Agent Analysis</h2>
-          <div className="desc">Structured mock workflow for weekly Options thesis building.</div>
+          <div className="desc">
+            Claude-authored crypto briefs woven into a 6-agent spot LONG/SHORT workflow.
+            {window.AnalysisClaude && <span className="claude-stamp mono"> · ✨ authored {window.AnalysisClaude.GENERATED_AT}</span>}
+          </div>
         </div>
         <div className="analysis-count mono">{analyses.length} session runs</div>
       </div>
@@ -159,6 +182,7 @@ function Analysis({analyses, activeAnalysisId, setActiveAnalysisId, onCreateAnal
           {!active && <div className="analysis-placeholder mono">Run a workflow to see the agent handoff.</div>}
           {active && (
             <>
+              <ClaudeBrief brief={active.claudeBrief} />
               <FinalThesis analysis={active} />
               <div className="label">Agent Reports</div>
               <div className="agent-report-grid">

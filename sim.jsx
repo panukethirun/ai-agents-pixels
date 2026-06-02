@@ -21,13 +21,44 @@ const STATIONS = [
   { id:'pingpong',  name:'Break Room',      icon:'🏓', kind:'break', zone:false, x:77, y:60, ax:72, ay:70, dur:[1.6,2.8] },
 ];
 
-const TICKERS = ['AAPL','MSFT','GOOG','AMZN','TSLA','NVDA','META','AMD','NFLX','SPY'];
+// เหรียญที่เทรด (คู่ USDT) — pair/stream ใช้ต่อ Binance ใน prices.jsx
+const COINS = [
+  { sym:'BTC',  pair:'BTCUSDT',  stream:'btcusdt'  },
+  { sym:'ETH',  pair:'ETHUSDT',  stream:'ethusdt'  },
+  { sym:'BNB',  pair:'BNBUSDT',  stream:'bnbusdt'  },
+  { sym:'SOL',  pair:'SOLUSDT',  stream:'solusdt'  },
+  { sym:'XRP',  pair:'XRPUSDT',  stream:'xrpusdt'  },
+  { sym:'ADA',  pair:'ADAUSDT',  stream:'adausdt'  },
+  { sym:'DOGE', pair:'DOGEUSDT', stream:'dogeusdt' },
+  { sym:'AVAX', pair:'AVAXUSDT', stream:'avaxusdt' },
+  { sym:'LINK', pair:'LINKUSDT', stream:'linkusdt' },
+  { sym:'TON',  pair:'TONUSDT',  stream:'tonusdt'  },
+];
+const TICKERS = COINS.map(c=>c.sym);
+// ราคา fallback ถ้า WebSocket ยังไม่ส่ง tick แรก (ใกล้เคียงราคาตลาดจริง)
+const FALLBACK_PX = { BTC:69000, ETH:1975, BNB:680, SOL:80, XRP:1.26, ADA:0.22, DOGE:0.099, AVAX:8.7, LINK:8.8, TON:2.0 };
+const livePrice = (sym)=> ((typeof window!=='undefined' && window.__livePrices && window.__livePrices[sym]) || FALLBACK_PX[sym] || 1);
 
 const rnd  = (a,b)=> a + Math.random()*(b-a);
 const irnd = (a,b)=> Math.floor(rnd(a,b+1));
 const pick = arr => arr[Math.floor(Math.random()*arr.length)];
 
 function fmtMoney(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
+// crypto price: ทศนิยมปรับตามขนาดราคา
+function fmtPx(p){
+  if(p==null) return '0';
+  if(p>=100) return p.toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  if(p>=1)   return p.toLocaleString('en-US',{minimumFractionDigits:3, maximumFractionDigits:3});
+  return p.toLocaleString('en-US',{minimumFractionDigits:5, maximumFractionDigits:5});
+}
+// crypto qty: เหรียญแพง→ทศนิยมเยอะ, เหรียญถูก→จำนวนเต็ม
+function fmtQty(q){
+  if(q==null) return '0';
+  if(q>=1000) return Math.round(q).toLocaleString('en-US');
+  if(q>=1)    return q.toLocaleString('en-US',{maximumFractionDigits:2});
+  if(q>=0.01) return q.toFixed(3);
+  return q.toFixed(5);
+}
 function fmtSigned(n){ const s=n>=0?'+':'-'; return s+'$'+Math.abs(Math.round(n)).toLocaleString('en-US'); }
 function fmtClock(mins){
   let h=Math.floor(mins/60), m=mins%60; const ap=h>=12?'PM':'AM';
@@ -41,8 +72,9 @@ function generateOutcome(st){
   switch(st.kind){
     case 'trade': {
       const side = Math.random()<0.55 ? 'BUY':'SELL';
-      const qty = irnd(20,300);
-      const price = +(rnd(40,520)).toFixed(2);
+      const price = livePrice(T);                  // ราคาจริงจาก Binance (fallback ถ้ายังไม่มา)
+      const notional = rnd(500, 8000);             // ขนาดสถานะเป็น USDT
+      const qty = notional/price;
       const win = Math.random()<0.66;
       const delta = win ? rnd(120,640) : -rnd(80,360);
       return {
@@ -50,14 +82,14 @@ function generateOutcome(st){
         balanceDelta:delta, pnlDelta:delta, taskInc:1,
         trade:{ side, ticker:T, qty, price },
         notif:{ ic: delta>=0?'✅':'🔻',
-          text:`${side} ${T} ×${qty} @ $${price} → ${fmtSigned(delta)}`,
+          text:`${side} ${T} ×${fmtQty(qty)} @ $${fmtPx(price)} → ${fmtSigned(delta)}`,
           kind: delta>=0?'up':'down' },
       };
     }
     case 'analyze':  return out('📊', `Momentum building on ${T}`, st, 1, pick([`Scanning the tape`,`Charting ${T}`,`Hunting setups`,`Reading the order flow`]));
-    case 'research': return out('📚', `Filed a research note on ${T}`, st, 1, pick([`Reading ${T} filings`,`Studying earnings`,`Digging through 10-Ks`]));
+    case 'research': return out('📚', `Filed a research note on ${T}`, st, 1, pick([`Reading ${T} docs`,`Studying tokenomics`,`Digging through on-chain data`]));
     case 'backtest': { const x=+(rnd(0.4,4.2)).toFixed(1);
-      return out('🧪', `Backtest beat SPY by ${x}%`, st, 1, pick([`Backtesting strategy`,`Reviewing the journal`,`Stress-testing risk`])); }
+      return out('🧪', `Backtest beat the market by ${x}%`, st, 1, pick([`Backtesting strategy`,`Reviewing the journal`,`Stress-testing risk`])); }
     case 'plan':     return out('🧭', pick([`Risk capped at 2% / trade`,`Confirmed the day's plan`,`Set stop-losses`]), st, 1, pick([`Reviewing the plan`,`Checking risk limits`,`Marking key levels`]));
     case 'ops':      return out('🛰️', pick([`Feeds synced · 12ms latency`,`Order book rebalanced`,`Risk engine all green`]), st, 1, pick([`Syncing data feeds`,`Rebalancing the book`,`Tuning the risk engine`]));
     case 'signals':  { const dir=Math.random()<.5?'LONG':'SHORT';
@@ -73,4 +105,4 @@ function out(ic, text, st, taskInc, bubble){
   return { bubble:bubble+'…', balanceDelta:0, pnlDelta:0, taskInc, notif:{ic,text,kind:'plain'} };
 }
 
-Object.assign(window, { STATIONS, TICKERS, generateOutcome, fmtMoney, fmtSigned, fmtClock, rnd, irnd, pick });
+Object.assign(window, { STATIONS, COINS, TICKERS, generateOutcome, fmtMoney, fmtSigned, fmtClock, fmtPx, fmtQty, livePrice, rnd, irnd, pick });

@@ -27,6 +27,9 @@ function App(){
   const [speed,setSpeed]     = useState(1);
   const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true});
 
+  // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
+  const market = useBinancePrices(COINS);
+
   // ---- mutable sim refs ----
   const agentsRef = useRef(AGENTS.map((a,i)=>({
     id:a.id, name:a.name, role:a.role, tint:a.tint, map:a.map, palette:a.palette,
@@ -211,7 +214,7 @@ function App(){
 
       <Sidebar view={view} setView={setView} balance={balance} pnlToday={pnlToday}
         tasksDone={tasks} notifs={notifs} equity={equity} running={settings.autopilot}
-        agents={agentView} />
+        agents={agentView} market={market} />
     </div>
   );
 }

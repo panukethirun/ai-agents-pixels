@@ -39,7 +39,7 @@ function NavBtn({icon,label,id,view,setView,badge}){
   );
 }
 
-function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents}){
+function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market}){
   const listRef = React.useRef(null);
   return (
     <aside className="sidebar">
@@ -47,7 +47,7 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
         <div className="brand">
           <div className="ava"><AvatarFace scale={4} /></div>
           <div>
-            <h1>PIXELTRADE</h1>
+            <h1>PIXELCRYPTO</h1>
             <div className="sub">
               <span className="status-dot" style={{background: running?'var(--up)':'var(--gold)'}}></span>
               {running? `${agents?agents.length:0} agents on the floor` : 'floor paused'}
@@ -75,6 +75,8 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
         </div>
         <Spark data={equity} />
       </div>
+
+      <MarketPrices market={market} />
 
       <div className="side-card frame tight">
         <div className="label">The Team</div>
