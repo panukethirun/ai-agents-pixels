@@ -39,8 +39,9 @@ function NavBtn({icon,label,id,view,setView,badge}){
   );
 }
 
-function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market}){
+function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account}){
   const listRef = React.useRef(null);
+  const acct = account && account.status === 'connected' ? account.account : null;
   return (
     <aside className="sidebar">
       <div className="side-card frame tight">
@@ -66,14 +67,31 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
       </div>
 
       <div className="side-card frame">
-        <div className="label">Live Stats</div>
-        <div className="stats">
-          <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney(balance)}</span></div>
-          <div className="stat"><span className="k">P&amp;L Today</span>
-            <span className={'v '+(pnlToday>=0?'up':'down')}>{fmtSigned(pnlToday)}</span></div>
-          <div className="stat"><span className="k">Tasks Done</span><span className="v">{tasksDone}</span></div>
+        <div className="label market-head">
+          <span>Live Stats</span>
+          <span className="market-status mono">
+            <span className="status-dot" style={{background: acct?'var(--up)':account&&account.status==='error'?'var(--down)':'var(--gold)'}}></span>
+            {acct ? 'testnet' : account&&account.status==='nokeys' ? 'paper (no keys)' : account&&account.status==='error' ? 'paper (offline)' : 'paper'}
+          </span>
         </div>
-        <Spark data={equity} />
+        <div className="stats">
+          {acct ? (
+            <>
+              <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney(acct.marginBalance)}</span></div>
+              <div className="stat"><span className="k">Unrealized P&amp;L</span>
+                <span className={'v '+(acct.unrealizedPnl>=0?'up':'down')}>{fmtSigned(acct.unrealizedPnl)}</span></div>
+              <div className="stat"><span className="k">Open Positions</span><span className="v">{acct.positions.length}</span></div>
+            </>
+          ) : (
+            <>
+              <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney(balance)}</span></div>
+              <div className="stat"><span className="k">P&amp;L Today</span>
+                <span className={'v '+(pnlToday>=0?'up':'down')}>{fmtSigned(pnlToday)}</span></div>
+              <div className="stat"><span className="k">Tasks Done</span><span className="v">{tasksDone}</span></div>
+            </>
+          )}
+        </div>
+        <Spark data={acct && account.history.length ? account.history : equity} />
       </div>
 
       <MarketPrices market={market} />

@@ -29,6 +29,8 @@ function App(){
 
   // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
   const market = useBinancePrices(COINS);
+  // real Binance Futures testnet account (margin balance, unrealized PnL, positions) — polled via /api/testnet/account
+  const account = useTestnetAccount(10000);
 
   // ---- mutable sim refs ----
   const agentsRef = useRef(AGENTS.map((a,i)=>({
@@ -214,7 +216,7 @@ function App(){
 
       <Sidebar view={view} setView={setView} balance={balance} pnlToday={pnlToday}
         tasksDone={tasks} notifs={notifs} equity={equity} running={settings.autopilot}
-        agents={agentView} market={market} />
+        agents={agentView} market={market} account={account} />
     </div>
   );
 }

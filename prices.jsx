@@ -66,6 +66,36 @@ function useBinancePrices(coins){
   return state;
 }
 
+// poll /api/testnet/account (margin balance, unrealized PnL, positions) ทุก intervalMs
+function useTestnetAccount(intervalMs){
+  const [state, setState] = React.useState({status:'loading', account:null, history:[]});
+  React.useEffect(()=>{
+    let alive = true; const hist = [];
+    const load = async ()=>{
+      try{
+        const res = await fetch('/api/testnet/account', {cache:'no-store'});
+        if(res.status === 400){ if(alive) setState(s=>({...s, status:'nokeys'})); return; }   // ยังไม่ตั้งคีย์
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const d = await res.json();
+        if(!alive) return;
+        const mb = parseFloat(d.totalMarginBalance);
+        if(!isNaN(mb)){ hist.push(mb); if(hist.length>60) hist.shift(); }
+        setState({status:'connected', history:hist.slice(), account:{
+          walletBalance: parseFloat(d.totalWalletBalance),
+          marginBalance: mb,
+          unrealizedPnl: parseFloat(d.totalUnrealizedProfit),
+          available: parseFloat(d.availableBalance),
+          positions: d.positions || [],
+        }});
+      }catch(e){ if(alive) setState(s=>({...s, status: s.account ? 'connected' : 'error'})); }
+    };
+    load();
+    const t = setInterval(load, intervalMs || 10000);
+    return ()=>{ alive=false; clearInterval(t); };
+  },[intervalMs]);
+  return state;
+}
+
 function fmtPrice(n){
   if(n==null) return '—';
   if(n>=100) return n.toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
@@ -114,4 +144,4 @@ function MarketPrices({market}){
   );
 }
 
-Object.assign(window, { useBinancePrices, MarketPrices });
+Object.assign(window, { useBinancePrices, useTestnetAccount, MarketPrices });

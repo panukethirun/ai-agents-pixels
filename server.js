@@ -108,12 +108,24 @@ async function handleApi(pathname, res) {
       return sendJSON(res, 400, { error: 'ยังไม่ได้ตั้งคีย์', help: 'คัดลอก binance.config.example.json → binance.config.json แล้วใส่คีย์ testnet จากนั้นรีสตาร์ท server' });
     }
     try {
-      const r = await fapi('GET', '/fapi/v2/balance', {}, true);
+      const r = await fapi('GET', '/fapi/v2/account', {}, true);
       if (r.status !== 200) return sendJSON(res, r.status, { error: 'binance error', detail: r.data });
-      const balances = (Array.isArray(r.data) ? r.data : [])
-        .filter((b) => parseFloat(b.balance) !== 0 || b.asset === 'USDT')
-        .map((b) => ({ asset: b.asset, balance: b.balance, availableBalance: b.availableBalance }));
-      return sendJSON(res, 200, { testnet: true, balances });
+      const a = r.data || {};
+      const balances = (Array.isArray(a.assets) ? a.assets : [])
+        .filter((b) => parseFloat(b.walletBalance) !== 0 || b.asset === 'USDT')
+        .map((b) => ({ asset: b.asset, balance: b.walletBalance, availableBalance: b.availableBalance, unrealizedProfit: b.unrealizedProfit }));
+      const positions = (Array.isArray(a.positions) ? a.positions : [])
+        .filter((p) => parseFloat(p.positionAmt) !== 0)
+        .map((p) => ({ symbol: p.symbol, positionAmt: p.positionAmt, entryPrice: p.entryPrice, unrealizedProfit: p.unrealizedProfit }));
+      return sendJSON(res, 200, {
+        testnet: true,
+        totalWalletBalance: a.totalWalletBalance,
+        totalMarginBalance: a.totalMarginBalance,
+        totalUnrealizedProfit: a.totalUnrealizedProfit,
+        availableBalance: a.availableBalance,
+        positions,
+        balances,
+      });
     } catch (e) {
       return sendJSON(res, 502, { error: String(e.message || e) });
     }
