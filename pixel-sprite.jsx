@@ -15,6 +15,31 @@ const SPRITE_PALETTE = {
   'O': '#1c130b', // shoes
 };
 
+const DUNGEON_PALETTE = {
+  '.': null,
+  'K': '#2b2018', // hair
+  'F': '#f0c094', // face
+  'f': '#c98254', // face shadow
+  'E': '#161b22', // eyes
+  'N': '#11151c', // black armor / cloth
+  'n': '#2a303a', // armor highlight
+  'M': '#c7d0d8', // blades / metal
+  'm': '#6f7d89', // dark metal
+  'G': '#e7b53c', // gold trim
+  'R': '#7a1f2b', // dark cape
+  'U': '#244d3a', // archer hood
+  'u': '#173226', // archer shadow
+  'L': '#6c4a2e', // leather
+  'l': '#3e2b1d', // leather shadow
+  'P': '#57338b', // wizard robe
+  'p': '#38235f', // robe shadow
+  'C': '#65e3ff', // magic
+  'B': '#8a5a36', // bow / staff
+  'b': '#d9c38a', // bow string
+  'D': '#d7dde5', // dagger
+  'O': '#17100c', // boots
+};
+
 // 13 wide x 16 tall — short hair
 const TRADER_MAP = [
   '....KKKKK....',
@@ -55,23 +80,95 @@ const TRADER_MAP_LONG = [
   '...OO..OO....',
 ];
 
+const CEO_WARRIOR_MAP = [
+  '.....KKKKK.....',
+  '....KKKKKKK....',
+  '....KFFFFFK....',
+  '....FFEFEFF....',
+  '....FFFFFFF....',
+  '.....FfFfF.....',
+  '..M..NNNNN..M..',
+  '.MMM.NGNGN.MMM.',
+  '..M.NNNNNNN.M..',
+  '....NNNGNNN....',
+  '...RNNNNNNNR...',
+  '....nnNNNnn....',
+  '....NN...NN....',
+  '....NO...ON....',
+  '....OO...OO....',
+  '...OO.....OO...',
+];
+
+const ARCHER_MAP = [
+  '.....UUUUU.....',
+  '....UUUUUUU....',
+  '....UFFFFFU....',
+  '....FFEFEFF....',
+  '....FFFFFFF....',
+  '.....FfFfF.....',
+  '....LLLLLLL.B..',
+  '...LlLLGLLl.B..',
+  '...LLLLLLLL.B..',
+  '....LLL.LLL.B..',
+  '....LL...LL.B..',
+  '....OO...OO.b..',
+  '....OO...OO.b..',
+  '...OO.....OO...',
+  '............b..',
+  '............B..',
+];
+
+const WIZARD_MAP = [
+  '......P........',
+  '.....PPP.......',
+  '....PPPPP......',
+  '....PFFFF......',
+  '....FFEFE......',
+  '....FFFFF..C...',
+  '.....FfF...C...',
+  '...PPPPPPP.B...',
+  '..pPPPGPPPpB...',
+  '...PPPPPPP.B...',
+  '....PPPPP..B...',
+  '....PP.PP..B...',
+  '....OO.OO..B...',
+  '...OO...OO.B...',
+  '...........B...',
+  '..........CCC..',
+];
+
+const THIEF_MAP = [
+  '.....NNNNN.....',
+  '....NNNNNNN....',
+  '....NFFFFFN....',
+  '....FFEFEFF....',
+  '....FFFFFFF....',
+  '.....FfFfF.....',
+  '..D..NNNNN..D..',
+  '...D.NnGnN.D...',
+  '....NNNNNNN....',
+  '....nNNNNn.....',
+  '....NN.NN......',
+  '....LL.LL......',
+  '....LO.OL......',
+  '....OO.OO......',
+  '...OO...OO.....',
+  '...............',
+];
+
 // per-agent palette = base + overrides (hair K, shirt S/s, tie T)
 function mkPalette(o){ return {...SPRITE_PALETTE, ...o}; }
 
-// the team roster — distinct colors so each agent reads at a glance
+// the team roster — RPG classes for the dungeon dashboard
 const AGENTS = [
-  { id:'a1', name:'Pip',  role:'Lead Trader', tint:'#4f8a4e', map:TRADER_MAP,
-    palette:mkPalette({K:'#3a2412', S:'#4f8a4e', s:'#356b3a', T:'#e7b53c'}) },
-  { id:'a2', name:'Mara', role:'Quant',       tint:'#4a78c4', map:TRADER_MAP_LONG,
-    palette:mkPalette({K:'#20140c', S:'#4a78c4', s:'#355a98', T:'#f0d24a'}) },
-  { id:'a3', name:'Dex',  role:'Risk',        tint:'#c25a48', map:TRADER_MAP,
-    palette:mkPalette({K:'#5a3318', S:'#c25a48', s:'#97402f', T:'#2e3b2a'}) },
-  { id:'a4', name:'Iris', role:'Research',    tint:'#8a5cc4', map:TRADER_MAP_LONG,
-    palette:mkPalette({K:'#43301c', S:'#8a5cc4', s:'#6a3fa0', T:'#e7b53c'}) },
-  { id:'a5', name:'Otis', role:'Ops',         tint:'#3fa89a', map:TRADER_MAP,
-    palette:mkPalette({K:'#2a1c10', S:'#3fa89a', s:'#2c7d72', T:'#e7b53c'}) },
-  { id:'a6', name:'Fern', role:'Signals',     tint:'#d98b3c', map:TRADER_MAP_LONG,
-    palette:mkPalette({K:'#6b4a24', S:'#d98b3c', s:'#b56a22', T:'#2e4a2c'}) },
+  { id:'a1', name:'Ping', role:'CEO Warrior', tint:'#e7b53c', map:CEO_WARRIOR_MAP,
+    palette:mkPalette(DUNGEON_PALETTE) },
+  { id:'a2', name:'Joe',  role:'Archer', tint:'#58b87a', map:ARCHER_MAP,
+    palette:mkPalette({...DUNGEON_PALETTE, U:'#2f6b4e', u:'#1f4634'}) },
+  { id:'a3', name:'Mali', role:'Wizard', tint:'#8a66d9', map:WIZARD_MAP,
+    palette:mkPalette({...DUNGEON_PALETTE, K:'#4a351f', P:'#6740a8', p:'#3c286d', C:'#65e3ff'}) },
+  { id:'a4', name:'Dex', role:'Thief', tint:'#6f7d89', map:THIEF_MAP,
+    palette:mkPalette({...DUNGEON_PALETTE, N:'#171b24', n:'#303847', G:'#caa84b'}) },
 ];
 
 // build a box-shadow string from a pixel map
@@ -119,6 +216,10 @@ function MiniFace({palette=SPRITE_PALETTE, map=TRADER_MAP, scale=4}){
   const head = map.slice(0,8);
   return <PixelSprite map={head} scale={scale} palette={palette} />;
 }
-function AvatarFace({scale=4}){ return <MiniFace scale={scale} />; }
+function AvatarFace({scale=4}){ return <MiniFace map={CEO_WARRIOR_MAP} palette={mkPalette(DUNGEON_PALETTE)} scale={scale} />; }
 
-Object.assign(window, { PixelSprite, Agent, MiniFace, AvatarFace, TRADER_MAP, TRADER_MAP_LONG, SPRITE_PALETTE, AGENTS });
+Object.assign(window, {
+  PixelSprite, Agent, MiniFace, AvatarFace,
+  TRADER_MAP, TRADER_MAP_LONG, CEO_WARRIOR_MAP, ARCHER_MAP, WIZARD_MAP, THIEF_MAP,
+  SPRITE_PALETTE, DUNGEON_PALETTE, AGENTS
+});

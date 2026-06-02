@@ -5,7 +5,7 @@ const START_BAL = 12480;
 
 // agent start positions (spread around the floor) — % of room
 const STARTS = [
-  {x:42,y:58},{x:52,y:62},{x:46,y:66},{x:70,y:64},{x:30,y:70},{x:58,y:52},
+  {x:30,y:60},{x:48,y:64},{x:63,y:58},{x:72,y:70},
 ];
 
 function App(){
@@ -234,7 +234,7 @@ function App(){
           <div className="now">
             <div className="pin">🤖</div>
             <div className="txt">
-              <div className="lab">The Floor · {AGENTS.length} agents</div>
+              <div className="lab">Dungeon Party · {AGENTS.length} heroes</div>
               <div className="act">{statusLine}</div>
             </div>
           </div>

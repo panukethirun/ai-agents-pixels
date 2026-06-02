@@ -43,16 +43,20 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
                   signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
+  // P&L แบบทศนิยม 2 ตำแหน่ง + % เทียบ wallet balance
+  const fmtSigned2 = (n)=> (n>=0?'+':'-')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const uPnl = acct ? acct.unrealizedPnl : 0;
+  const uPct = acct && acct.walletBalance ? (uPnl/acct.walletBalance*100) : 0;
   return (
     <aside className="sidebar">
       <div className="side-card frame tight">
         <div className="brand">
           <div className="ava"><AvatarFace scale={4} /></div>
           <div>
-            <h1>PIXELCRYPTO</h1>
+            <h1>DUNGEONOPS</h1>
             <div className="sub">
               <span className="status-dot" style={{background: running?'var(--up)':'var(--gold)'}}></span>
-              {running? `${agents?agents.length:0} agents on the floor` : 'floor paused'}
+              {running? `${agents?agents.length:0} heroes in party` : 'party paused'}
             </div>
           </div>
         </div>
@@ -80,7 +84,7 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
             <>
               <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney(acct.marginBalance)}</span></div>
               <div className="stat"><span className="k">Unrealized P&amp;L</span>
-                <span className={'v '+(acct.unrealizedPnl>=0?'up':'down')}>{fmtSigned(acct.unrealizedPnl)}</span></div>
+                <span className={'v '+(uPnl>=0?'up':'down')}>{fmtSigned2(uPnl)}<span className="v-pct">({uPct>=0?'+':''}{uPct.toFixed(2)}%)</span></span></div>
               <div className="stat"><span className="k">Open Positions</span><span className="v">{acct.positions.length}</span></div>
             </>
           ) : (
