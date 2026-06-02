@@ -36,6 +36,11 @@ function Toggle({on,onClick}){ return <div className={'toggle'+(on?' on':'')} on
 
 function Settings({settings, setSettings, onReset, speed, setSpeed}){
   const set = (k,v)=> setSettings(s=>({...s,[k]:v}));
+  const toggleAutoTrade = ()=>{
+    if(settings.autoTrade){ set('autoTrade', false); return; }
+    const ok = window.confirm('เปิด Auto-trade บน TESTNET?\n\nระบบจะส่งคำสั่ง MARKET BTCUSDT (เงินปลอม) ไป Binance testnet โดยอัตโนมัติ เมื่อ Live Signal มี confidence ≥ 80% (cooldown 60 วิ/ทิศทาง)\n\n⚠️ เป็น testnet เงินปลอมเท่านั้น ไม่ใช่บัญชีจริง');
+    if(ok) set('autoTrade', true);
+  };
   return (
     <div className="view-pane frame">
       <h2>⚙️ Settings</h2>
@@ -60,6 +65,10 @@ function Settings({settings, setSettings, onReset, speed, setSpeed}){
       <div className="set-row">
         <div className="k">Agent names<small>Floating name tag under each agent</small></div>
         <Toggle on={settings.names} onClick={()=>set('names',!settings.names)} />
+      </div>
+      <div className="set-row">
+        <div className="k">Auto-trade (TESTNET)<small>Signal ≥ 80% → ยิงคำสั่งอัตโนมัติบน testnet (เงินปลอม)</small></div>
+        <Toggle on={settings.autoTrade} onClick={toggleAutoTrade} />
       </div>
       <div className="set-row">
         <div className="k">Aggression<small>Higher = more frequent trading</small></div>

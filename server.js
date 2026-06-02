@@ -90,8 +90,13 @@ function sendJSON(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
-// ---- API routes (testnet only, read-only) ----
-async function handleApi(pathname, res) {
+// ---- API routes (testnet only) ----
+async function handleApi(req, res) {
+  const u = new URL(req.url, 'http://localhost');
+  const pathname = u.pathname;
+  const method = req.method;
+  const q = u.searchParams;
+
   // สถานะการเชื่อมต่อ + คีย์ถูกตั้งหรือยัง (ไม่เปิดเผยคีย์)
   if (pathname === '/api/testnet/status') {
     try {
@@ -131,6 +136,29 @@ async function handleApi(pathname, res) {
     }
   }
 
+  // ส่งคำสั่ง MARKET ไป TESTNET เท่านั้น (เงินปลอม) — มี safety rails
+  if (pathname === '/api/testnet/order' && method === 'POST') {
+    if (!isConfigured(loadKeys())) return sendJSON(res, 400, { error: 'ยังไม่ได้ตั้งคีย์ testnet' });
+    const symbol = String(q.get('symbol') || '').toUpperCase();
+    const side = String(q.get('side') || '').toUpperCase();
+    const quantity = parseFloat(q.get('quantity'));
+    const reduceOnly = q.get('reduceOnly') === 'true';
+    // 🔒 safety rails: BTCUSDT เท่านั้น + ขนาดออเดอร์จำกัด กัน fat-finger (เป็น testnet อยู่แล้ว)
+    if (symbol !== 'BTCUSDT') return sendJSON(res, 400, { error: 'อนุญาตเฉพาะ BTCUSDT (กันพลาด)' });
+    if (!['BUY', 'SELL'].includes(side)) return sendJSON(res, 400, { error: 'side ต้องเป็น BUY หรือ SELL' });
+    if (!(quantity > 0) || quantity > 0.05) return sendJSON(res, 400, { error: 'quantity ต้อง > 0 และ <= 0.05' });
+    try {
+      const params = { symbol, side, type: 'MARKET', quantity, newOrderRespType: 'RESULT' };
+      if (reduceOnly) params.reduceOnly = 'true';
+      const r = await fapi('POST', '/fapi/v1/order', params, true);
+      if (r.status !== 200) return sendJSON(res, r.status, { error: 'binance error', detail: r.data });
+      const o = r.data || {};
+      return sendJSON(res, 200, { testnet: true, orderId: o.orderId, symbol: o.symbol, side: o.side, type: o.type, status: o.status, executedQty: o.executedQty, avgPrice: o.avgPrice, origQty: o.origQty });
+    } catch (e) {
+      return sendJSON(res, 502, { error: String(e.message || e) });
+    }
+  }
+
   return sendJSON(res, 404, { error: 'unknown endpoint' });
 }
 
@@ -156,7 +184,7 @@ function serveStatic(req, res) {
 
 const server = http.createServer((req, res) => {
   const pathname = req.url.split('?')[0];
-  if (pathname.startsWith('/api/')) { handleApi(pathname, res).catch((e) => sendJSON(res, 500, { error: String(e) })); return; }
+  if (pathname.startsWith('/api/')) { handleApi(req, res).catch((e) => sendJSON(res, 500, { error: String(e) })); return; }
   serveStatic(req, res);
 });
 

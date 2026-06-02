@@ -25,12 +25,16 @@ function App(){
   const [clock,setClock]     = useState(570);
   const [day,setDay]         = useState(1);
   const [speed,setSpeed]     = useState(1);
-  const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true});
+  const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true, autoTrade:false});
+  const [tradeBusy,setTradeBusy] = useState(false);
+  const [tradeMsg,setTradeMsg]   = useState(null);
 
   // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
   const market = useBinancePrices(COINS);
   // real Binance Futures testnet account (margin balance, unrealized PnL, positions) — polled via /api/testnet/account
   const account = useTestnetAccount(10000);
+  // live trading signal computed from REAL Binance klines (RSI/SMA/momentum) → LONG/SHORT + confidence
+  const signal = useSignal('BTC', 20000);
 
   // ---- mutable sim refs ----
   const agentsRef = useRef(AGENTS.map((a,i)=>({
@@ -178,6 +182,43 @@ function App(){
     setAgentView(AGENTS.map((a,i)=>({...a, pos:{...STARTS[i]}, flip:false, walking:false, bubble:null})));
   };
 
+  // เพิ่มแจ้งเตือนเข้า activity log จากนอก sim loop (ใช้กับการเทรด testnet จริง)
+  const pushNotifTop = (n)=> setNotifs(l=>[{id:++idc.current, time:fmtClock(clkRef.current), ...n},...l].slice(0,40));
+
+  // ส่งคำสั่งจริงไป TESTNET (เงินปลอม) — ขนาด ~150 USDT, BTCUSDT, ผ่าน /api/testnet/order
+  const placeTestnetOrder = async (direction, isAuto)=>{
+    if(account.status!=='connected'){ setTradeMsg({ok:false, text:'ต่อ testnet ก่อน'}); return; }
+    const price = (window.__livePrices && window.__livePrices.BTC) || (signal && signal.price) || 0;
+    if(!price){ setTradeMsg({ok:false, text:'ยังไม่มีราคา BTC'}); return; }
+    const side = direction==='LONG' ? 'BUY' : 'SELL';
+    let qty = Math.round((150/price)/0.001)*0.001;            // ~150 USDT notional, step 0.001
+    qty = Math.min(Math.max(qty, 0.001), 0.05).toFixed(3);
+    setTradeBusy(true); setTradeMsg(null);
+    try{
+      const res = await fetch(`/api/testnet/order?symbol=BTCUSDT&side=${side}&quantity=${qty}`, {method:'POST'});
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || ('HTTP '+res.status));
+      const fillPx = parseFloat(d.avgPrice) || price;
+      const txt = `${isAuto?'🤖 AUTO ':''}${side} ${qty} BTC @ ~$${Math.round(fillPx).toLocaleString('en-US')} · testnet`;
+      setTradeMsg({ok:true, text:'✅ '+txt});
+      pushNotifTop({ic:'⚡', text:txt, kind: direction==='LONG'?'up':'down', who:'Signal', tint:'var(--gold)'});
+    }catch(e){
+      setTradeMsg({ok:false, text:'❌ '+(e.message||e)});
+      pushNotifTop({ic:'⚠️', text:'order ล้มเหลว: '+(e.message||e), kind:'plain', who:'Signal', tint:'var(--gold)'});
+    }finally{ setTradeBusy(false); }
+  };
+
+  // AUTO mode (testnet, opt-in): ยิงคำสั่งเมื่อ confidence >= 80% + cooldown 60s ต่อทิศทาง
+  const autoRef = useRef({t:0, dir:null});
+  useEffect(()=>{
+    if(!settings.autoTrade || !signal || signal.confidence < 80) return;
+    if(account.status!=='connected' || tradeBusy) return;
+    const now = Date.now();
+    if(now - autoRef.current.t < 60000 && autoRef.current.dir===signal.direction) return;
+    autoRef.current = {t:now, dir:signal.direction};
+    placeTestnetOrder(signal.direction, true);
+  }, [signal, settings.autoTrade, account.status]);
+
   const statusLine = settings.autopilot
     ? `${floor.working} working · ${floor.walking} walking`
     : 'Floor paused — agents idle';
@@ -208,7 +249,7 @@ function App(){
             tint={settings.tint} showLabels={settings.labels} showNames={settings.names} />}
         {view==='analysis' && <Analysis analyses={analyses} activeAnalysisId={activeAnalysisId}
             setActiveAnalysisId={setActiveAnalysisId} onCreateAnalysis={onCreateAnalysis}
-            agents={agentView} />}
+            agents={agentView} signal={signal} />}
         {view==='history'  && <History history={history} />}
         {view==='settings' && <Settings settings={settings} setSettings={setSettings}
             onReset={onReset} speed={speed} setSpeed={setSpeed} />}
@@ -216,7 +257,9 @@ function App(){
 
       <Sidebar view={view} setView={setView} balance={balance} pnlToday={pnlToday}
         tasksDone={tasks} notifs={notifs} equity={equity} running={settings.autopilot}
-        agents={agentView} market={market} account={account} />
+        agents={agentView} market={market} account={account}
+        signal={signal} onTrade={placeTestnetOrder} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
+        autoTrade={settings.autoTrade} canTrade={account.status==='connected'} />
     </div>
   );
 }

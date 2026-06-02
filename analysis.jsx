@@ -153,7 +153,7 @@ function FinalThesis({analysis}){
   );
 }
 
-function Analysis({analyses, activeAnalysisId, setActiveAnalysisId, onCreateAnalysis, agents}){
+function Analysis({analyses, activeAnalysisId, setActiveAnalysisId, onCreateAnalysis, agents, signal}){
   const active = analyses.find(item => item.id===activeAnalysisId) || analyses[0];
   const tintByName = {};
   (agents || []).forEach(agent => { tintByName[agent.name] = agent.tint; });
@@ -168,7 +168,16 @@ function Analysis({analyses, activeAnalysisId, setActiveAnalysisId, onCreateAnal
             {window.AnalysisClaude && <span className="claude-stamp mono"> · ✨ authored {window.AnalysisClaude.GENERATED_AT}</span>}
           </div>
         </div>
-        <div className="analysis-count mono">{analyses.length} session runs</div>
+        <div className="analysis-top-right">
+          {signal && (
+            <div className={'live-signal-pill mono '+(signal.confidence>=80?'hot ':'')+(signal.direction==='LONG'?'long':'short')}>
+              <span>⚡ Live {signal.sym}</span>
+              <strong>{signal.direction} {signal.confidence}%</strong>
+              <small>RSI {signal.rsi} · 24h {signal.chg24h>=0?'+':''}{signal.chg24h.toFixed(1)}%</small>
+            </div>
+          )}
+          <div className="analysis-count mono">{analyses.length} session runs</div>
+        </div>
       </div>
 
       <div className="analysis-layout">

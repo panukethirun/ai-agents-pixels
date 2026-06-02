@@ -39,7 +39,8 @@ function NavBtn({icon,label,id,view,setView,badge}){
   );
 }
 
-function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account}){
+function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,
+                  signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
   return (
@@ -93,6 +94,9 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
         </div>
         <Spark data={acct && account.history.length ? account.history : equity} />
       </div>
+
+      <SignalCard signal={signal} onTrade={onTrade} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
+        auto={autoTrade} canTrade={canTrade} />
 
       <MarketPrices market={market} />
 
