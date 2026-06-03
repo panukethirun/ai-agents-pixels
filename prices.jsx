@@ -8,14 +8,14 @@
 
 // connect Binance live tickers for `coins` ([{sym,pair,stream}]); returns {status, quotes:[]}
 function useBinancePrices(coins){
-  const [state, setState] = React.useState({status:'connecting', quotes:(coins||[]).map(c=>({sym:c.sym, price:null, changePct:null}))});
+  const [state, setState] = React.useState({status:'connecting', quotes:(coins||[]).map(c=>({sym:c.sym, icon:c.icon, price:null, changePct:null}))});
 
   React.useEffect(()=>{
     if(!coins || !coins.length) return;
 
     const bySym = {};                                   // sym -> {sym, price, changePct}
     const pairToSym = {};
-    coins.forEach(c=>{ bySym[c.sym] = {sym:c.sym, price:null, changePct:null}; pairToSym[c.pair] = c.sym; });
+    coins.forEach(c=>{ bySym[c.sym] = {sym:c.sym, icon:c.icon, price:null, changePct:null}; pairToSym[c.pair] = c.sym; });
 
     let ws, closed=false, reconnectT=null;
 
@@ -67,7 +67,7 @@ function useBinancePrices(coins){
 }
 
 // poll /api/testnet/account (margin balance, unrealized PnL, positions) ทุก intervalMs
-function useTestnetAccount(intervalMs){
+function useTestnetAccount(intervalMs, refreshKey){
   const [state, setState] = React.useState({status:'loading', account:null, history:[]});
   React.useEffect(()=>{
     let alive = true; const hist = [];
@@ -92,7 +92,7 @@ function useTestnetAccount(intervalMs){
     load();
     const t = setInterval(load, intervalMs || 10000);
     return ()=>{ alive=false; clearInterval(t); };
-  },[intervalMs]);
+  },[intervalMs, refreshKey]);
   return state;
 }
 
@@ -106,7 +106,7 @@ function fmtPct(n){ if(n==null) return ''; return (n>=0?'+':'')+n.toFixed(2)+'%'
 
 function MarketPrices({market}){
   const {status, quotes} = market || {};
-  const list = quotes || [];
+  const list = (quotes || []).slice(0, 3);
   const ok = list.filter(q=>q.price!=null).length;
   const haveAny = ok>0;
   const dot = status==='live' ? 'var(--up)' : status==='error' ? 'var(--down)' : 'var(--gold)';
@@ -128,7 +128,7 @@ function MarketPrices({market}){
           const up = (q.changePct||0) >= 0;
           return (
             <div className="market-row" key={q.sym}>
-              <span className="mk-sym">{q.sym}</span>
+              <span className="mk-sym"><span className="coin-icon">{q.icon || '●'}</span>{q.sym}</span>
               <span className="mk-px mono">{fmtPrice(q.price)}</span>
               <span className={'mk-chg mono '+(q.price==null?'muted':up?'up':'down')}>
                 {q.price==null ? '—' : fmtPct(q.changePct)}

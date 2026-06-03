@@ -18,15 +18,12 @@ function Room({agents, busySet, onStationClick, tint, showLabels, showNames}){
   // DOM every frame was what made the agents flicker as they passed each other.
   return (
     <div className="stage">
-      <div className={'room dungeon'+(tint?' day-tint':'')} style={{backgroundImage:'url(assets/dungeon-room.png)'}}>
-        {STATIONS.map(st=>(
-          <Station key={st.id} st={st} busyAgent={busySet[st.id]} onClick={onStationClick} showLabels={showLabels} />
-        ))}
+      <div className={'room sao-room'+(tint?' day-tint':'')} style={{backgroundImage:'url(assets/sao-office.png)'}}>
         {agents.map(a=>(
           <Agent key={a.id} a={a} scale={3} showName={showNames} z={100 + Math.round(a.pos.y)} />
         ))}
       </div>
-      <div className="room-hint mono">Click any dungeon station to send the nearest hero there</div>
+      <div className="room-hint mono">✦ Party standing by on the front rail</div>
     </div>
   );
 }

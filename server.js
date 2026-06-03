@@ -90,6 +90,26 @@ function sendJSON(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
+function readJSONBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 4096) req.destroy(new Error('body too large'));
+    });
+    req.on('end', () => {
+      if (!body.trim()) return resolve({});
+      try { resolve(JSON.parse(body)); }
+      catch (e) { reject(new Error('invalid JSON body')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function roundStep(value, step) {
+  return Math.floor(value / step) * step;
+}
+
 // ---- API routes (testnet only) ----
 async function handleApi(req, res) {
   const u = new URL(req.url, 'http://localhost');
@@ -139,21 +159,37 @@ async function handleApi(req, res) {
   // ส่งคำสั่ง MARKET ไป TESTNET เท่านั้น (เงินปลอม) — มี safety rails
   if (pathname === '/api/testnet/order' && method === 'POST') {
     if (!isConfigured(loadKeys())) return sendJSON(res, 400, { error: 'ยังไม่ได้ตั้งคีย์ testnet' });
-    const symbol = String(q.get('symbol') || '').toUpperCase();
-    const side = String(q.get('side') || '').toUpperCase();
-    const quantity = parseFloat(q.get('quantity'));
-    const reduceOnly = q.get('reduceOnly') === 'true';
+    let body = {};
+    try { body = await readJSONBody(req); }
+    catch (e) { return sendJSON(res, 400, { error: e.message }); }
+    const symbol = String(body.symbol || q.get('symbol') || '').toUpperCase();
+    const direction = String(body.direction || '').toUpperCase();
+    const side = String(body.side || q.get('side') || (direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : '')).toUpperCase();
+    const reduceOnly = body.reduceOnly === true || q.get('reduceOnly') === 'true';
+    const notionalUsdt = parseFloat(body.notionalUsdt || q.get('notionalUsdt'));
+    let quantity = parseFloat(body.quantity || q.get('quantity'));
     // 🔒 safety rails: BTCUSDT เท่านั้น + ขนาดออเดอร์จำกัด กัน fat-finger (เป็น testnet อยู่แล้ว)
     if (symbol !== 'BTCUSDT') return sendJSON(res, 400, { error: 'อนุญาตเฉพาะ BTCUSDT (กันพลาด)' });
     if (!['BUY', 'SELL'].includes(side)) return sendJSON(res, 400, { error: 'side ต้องเป็น BUY หรือ SELL' });
-    if (!(quantity > 0) || quantity > 0.05) return sendJSON(res, 400, { error: 'quantity ต้อง > 0 และ <= 0.05' });
+    if (notionalUsdt && (!(notionalUsdt >= 10) || notionalUsdt > 1000)) {
+      return sendJSON(res, 400, { error: 'notionalUsdt ต้องอยู่ระหว่าง 10 ถึง 1000 USDT' });
+    }
     try {
+      let markPrice = 0;
+      if (notionalUsdt) {
+        const pr = await fapi('GET', '/fapi/v1/ticker/price', { symbol }, false);
+        if (pr.status !== 200) return sendJSON(res, pr.status, { error: 'binance price error', detail: pr.data });
+        markPrice = parseFloat(pr.data && pr.data.price);
+        quantity = roundStep(notionalUsdt / markPrice, 0.001);
+      }
+      if (!(quantity > 0) || quantity > 0.05) return sendJSON(res, 400, { error: 'quantity ต้อง > 0 และ <= 0.05' });
+      quantity = quantity.toFixed(3);
       const params = { symbol, side, type: 'MARKET', quantity, newOrderRespType: 'RESULT' };
       if (reduceOnly) params.reduceOnly = 'true';
       const r = await fapi('POST', '/fapi/v1/order', params, true);
       if (r.status !== 200) return sendJSON(res, r.status, { error: 'binance error', detail: r.data });
       const o = r.data || {};
-      return sendJSON(res, 200, { testnet: true, orderId: o.orderId, symbol: o.symbol, side: o.side, type: o.type, status: o.status, executedQty: o.executedQty, avgPrice: o.avgPrice, origQty: o.origQty });
+      return sendJSON(res, 200, { testnet: true, orderId: o.orderId, symbol: o.symbol, side: o.side, direction: side === 'BUY' ? 'LONG' : 'SHORT', notionalUsdt, markPrice, type: o.type, status: o.status, executedQty: o.executedQty, avgPrice: o.avgPrice, origQty: o.origQty });
     } catch (e) {
       return sendJSON(res, 502, { error: String(e.message || e) });
     }

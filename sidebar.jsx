@@ -32,22 +32,50 @@ function Spark({data}){
 
 function NavBtn({icon,label,id,view,setView,badge}){
   return (
-    <div className={'nav-btn'+(view===id?' active':'')} onClick={()=>setView(id)}>
-      <span className="ico">{icon}</span>{label}
+    <button className={'nav-btn'+(view===id?' active':'')} onClick={()=>setView(id)} title={label} aria-label={label}>
+      <span className="ico">{icon}</span>
       {badge>0 && <span className="badge">{badge}</span>}
-    </div>
+    </button>
   );
 }
 
-function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,
+function TopNav({view,setView}){
+  return (
+    <nav className="top-nav frame" aria-label="Main navigation">
+      <NavBtn icon="🏠" label="Dashboard" id="dashboard" view={view} setView={setView} />
+      <NavBtn icon="🧠" label="Analysis"  id="analysis"  view={view} setView={setView} />
+      <NavBtn icon="📜" label="History"   id="history"   view={view} setView={setView} badge={0} />
+      <NavBtn icon="⚙️" label="Settings"  id="settings"  view={view} setView={setView} />
+    </nav>
+  );
+}
+
+function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,history,
                   signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
-  // P&L แบบทศนิยม 2 ตำแหน่ง + % เทียบ wallet balance
-  const fmtSigned2 = (n)=> (n>=0?'+':'-')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtSigned2 = (n)=> (n>=0?'+':'-')+'$'+Math.abs(Number(n||0)).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtPct2 = (n)=> (n>=0?'+':'')+Number(n||0).toFixed(2)+'%';
+  const currentPosition = (positions, paperHistory)=>{
+    const p = positions && positions.find(pos=>Number(pos.positionAmt)!==0);
+    if(p){
+      const amt = Number(p.positionAmt)||0;
+      return {status: amt > 0 ? 'Long' : 'Short', symbol:p.symbol, cls:amt > 0 ? 'long' : 'short'};
+    }
+    const h = paperHistory && paperHistory.find(x=>x.side);
+    if(h) return {status:h.side === 'BUY' ? 'Long' : 'Short', symbol:h.ticker || 'Paper', cls:h.side === 'BUY' ? 'long' : 'short'};
+    return {status:'No position', symbol:'', cls:'flat'};
+  };
   const uPnl = acct ? acct.unrealizedPnl : 0;
   const uPct = acct && acct.walletBalance ? (uPnl/acct.walletBalance*100) : 0;
+  const paperBase = Math.max(1, balance - pnlToday);
+  const paperPct = pnlToday / paperBase * 100;
+  const openPnlPct = acct ? uPct : paperPct;
+  const pos = currentPosition(acct ? acct.positions : null, acct ? null : history);
   return (
+    <>
+    <TopNav view={view} setView={setView} />
     <aside className="sidebar">
       <div className="side-card frame tight">
         <div className="brand">
@@ -62,15 +90,6 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
         </div>
       </div>
 
-      <div className="side-card frame tight">
-        <nav className="nav">
-          <NavBtn icon="🏠" label="Dashboard" id="dashboard" view={view} setView={setView} />
-          <NavBtn icon="🧠" label="Analysis"  id="analysis"  view={view} setView={setView} />
-          <NavBtn icon="📜" label="History"   id="history"   view={view} setView={setView} badge={0} />
-          <NavBtn icon="⚙️" label="Settings"  id="settings"  view={view} setView={setView} />
-        </nav>
-      </div>
-
       <div className="side-card frame">
         <div className="label market-head">
           <span>Live Stats</span>
@@ -82,21 +101,31 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
         <div className="stats">
           {acct ? (
             <>
-              <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney(acct.marginBalance)}</span></div>
+              <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney2(acct.marginBalance)}</span></div>
               <div className="stat"><span className="k">Unrealized P&amp;L</span>
-                <span className={'v '+(uPnl>=0?'up':'down')}>{fmtSigned2(uPnl)}<span className="v-pct">({uPct>=0?'+':''}{uPct.toFixed(2)}%)</span></span></div>
-              <div className="stat"><span className="k">Open Positions</span><span className="v">{acct.positions.length}</span></div>
+                <span className={'v '+(uPnl>=0?'up':'down')}>{fmtSigned2(uPnl)}<span className="v-pct">({fmtPct2(uPct)})</span></span></div>
+              <div className="stat position-stat"><span className="k">Open Positions</span>
+                <span className={'v position-current '+pos.cls}>
+                  <span>{pos.status}</span>
+                  {pos.symbol && <small>{pos.symbol}</small>}
+                  <em className={openPnlPct>=0?'up':'down'}>{fmtPct2(openPnlPct)}</em>
+                </span>
+              </div>
             </>
           ) : (
             <>
-              <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney(balance)}</span></div>
+              <div className="stat"><span className="k">Balance</span><span className="v">{fmtMoney2(balance)}</span></div>
               <div className="stat"><span className="k">P&amp;L Today</span>
-                <span className={'v '+(pnlToday>=0?'up':'down')}>{fmtSigned(pnlToday)}</span></div>
-              <div className="stat"><span className="k">Tasks Done</span><span className="v">{tasksDone}</span></div>
+                <span className={'v '+(pnlToday>=0?'up':'down')}>{fmtSigned2(pnlToday)}<span className="v-pct">({fmtPct2(paperPct)})</span></span></div>
+              <div className="stat position-stat"><span className="k">Positions</span>
+                <span className={'v position-current '+pos.cls}>
+                  <span>{pos.status}</span>
+                  {pos.symbol && <small>{pos.symbol}</small>}
+                  <em className={openPnlPct>=0?'up':'down'}>{fmtPct2(openPnlPct)}</em>
+                </span></div>
             </>
           )}
         </div>
-        <Spark data={acct && account.history.length ? account.history : equity} />
       </div>
 
       <SignalCard signal={signal} onTrade={onTrade} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
@@ -113,7 +142,7 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
             return (
               <div className="teammate" key={a.id} title={`${a.name} · ${a.role} — ${act}`}>
                 <div className="tm-face" style={{borderColor:a.tint}}>
-                  <MiniFace palette={a.palette} map={a.map} scale={3} />
+                  <MiniFace palette={a.palette} map={a.map} image={a.image} scale={3} />
                   <span className={'tm-dot'+(a.phase==='working'?' on':a.phase==='walking'?' go':'')}></span>
                 </div>
                 <div className="tm-name">{a.name}</div>
@@ -142,7 +171,8 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
         </div>
       </div>
     </aside>
+    </>
   );
 }
 
-Object.assign(window, { Sidebar, Spark });
+Object.assign(window, { Sidebar, Spark, TopNav });

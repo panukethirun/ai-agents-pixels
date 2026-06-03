@@ -1,38 +1,33 @@
 /* ===== Simulation: stations / work-zones, tickers, outcomes ===== */
 
+const WALK_LINE_Y = 82;
+
 // positions are % of the room; (x,y)=hotspot marker, (ax,ay)=where the agent stands.
 // zone:true  => a "work zone" (teal ring + always-on nameplate).  tag => short zone label.
 const STATIONS = [
   // ---- work zones ----
-  { id:'market',    name:'Crystal Scrying', tag:'SCRY',      icon:'*', kind:'analyze',  zone:true,  x:13, y:15, ax:13, ay:31, dur:[2.0,3.4] },
-  { id:'plan',      name:'War Table',       tag:'TACTICS',   icon:'+', kind:'plan',     zone:true,  x:33, y:13, ax:33, ay:31, dur:[1.8,2.8] },
-  { id:'wins',      name:'Trophy Alcove',   tag:'REVIEW',    icon:'^', kind:'review',   zone:true,  x:46, y:14, ax:46, ay:31, dur:[1.8,3.0] },
-  { id:'macro',     name:'Rune Observatory',tag:'RUNES',     icon:'o', kind:'analyze',  zone:true,  x:59, y:15, ax:59, ay:31, dur:[2.0,3.2] },
-  { id:'ops',       name:'Gate Console',    tag:'GATE',      icon:'#', kind:'ops',      zone:true,  x:84, y:19, ax:84, ay:31, dur:[1.8,3.0] },
-  { id:'pod',       name:'Alchemy Lab',     tag:'LAB',       icon:'%', kind:'backtest', zone:true,  x:20, y:40, ax:27, ay:47, dur:[2.4,3.8] },
-  { id:'deal',      name:'Treasure Desk',   tag:'LOOT',      icon:'$', kind:'trade',    zone:true,  x:80, y:36, ax:81, ay:45, dur:[2.2,3.6] },
-  { id:'analytics', name:'Cartography Bay', tag:'MAPS',      icon:'=', kind:'analyze',  zone:true,  x:31, y:64, ax:31, ay:74, dur:[2.0,3.4] },
-  { id:'desk',      name:'Armory Exchange', tag:'TRADE',     icon:'x', kind:'trade',    zone:true,  x:19, y:67, ax:19, ay:81, dur:[2.4,4.0] },
-  { id:'signals',   name:'Signal Shrine',   tag:'SIGNALS',   icon:'~', kind:'signals',  zone:true,  x:47, y:68, ax:47, ay:78, dur:[2.0,3.2] },
-  { id:'library',   name:'Forbidden Library', tag:'LORE',    icon:'?', kind:'research', zone:true,  x:74, y:74, ax:78, ay:86, dur:[2.2,3.6] },
+  { id:'market',    name:'Sword Art Sign',  tag:'MARKET',    icon:'📈', kind:'analyze',  zone:true,  x:13, y:20, ax:13, ay:WALK_LINE_Y, dur:[2.0,3.4] },
+  { id:'plan',      name:'Floor Guide',     tag:'PLAN',      icon:'🧭', kind:'plan',     zone:true,  x:10, y:55, ax:23, ay:WALK_LINE_Y, dur:[1.8,2.8] },
+  { id:'wins',      name:'Welcome Gate',    tag:'REVIEW',    icon:'🏆', kind:'review',   zone:true,  x:50, y:18, ax:42, ay:WALK_LINE_Y, dur:[1.8,3.0] },
+  { id:'macro',     name:'Aincrad View',    tag:'MACRO',     icon:'🌆', kind:'analyze',  zone:true,  x:50, y:44, ax:50, ay:WALK_LINE_Y, dur:[2.0,3.2] },
+  { id:'ops',       name:'Member Board',    tag:'OPS',       icon:'🛰️', kind:'ops',      zone:true,  x:86, y:35, ax:77, ay:WALK_LINE_Y, dur:[1.8,3.0] },
+  { id:'pod',       name:'Left Workshop',   tag:'R&D',       icon:'🧪', kind:'backtest', zone:true,  x:23, y:58, ax:29, ay:WALK_LINE_Y, dur:[2.4,3.8] },
+  { id:'deal',      name:'Quest Board',     tag:'DEALS',     icon:'🤝', kind:'trade',    zone:true,  x:86, y:76, ax:86, ay:WALK_LINE_Y, dur:[2.2,3.6] },
+  { id:'analytics', name:'Aincrad Console', tag:'ANALYTICS', icon:'📊', kind:'analyze',  zone:true,  x:50, y:70, ax:58, ay:WALK_LINE_Y, dur:[2.0,3.4] },
+  { id:'desk',      name:'Login Counter',   tag:'TRADING',   icon:'💹', kind:'trade',    zone:true,  x:17, y:80, ax:17, ay:WALK_LINE_Y, dur:[2.4,4.0] },
+  { id:'signals',   name:'Center Rail',     tag:'SIGNALS',   icon:'🌱', kind:'signals',  zone:true,  x:39, y:66, ax:39, ay:WALK_LINE_Y, dur:[2.0,3.2] },
+  { id:'library',   name:'Guild Lounge',    tag:'RESEARCH',  icon:'📚', kind:'research', zone:true,  x:78, y:61, ax:71, ay:WALK_LINE_Y, dur:[2.2,3.6] },
   // ---- leisure (keeps the office feeling alive) ----
-  { id:'coffee',    name:'Potion Keg',      icon:'!', kind:'rest',  zone:false, x:75, y:19, ax:73, ay:30, dur:[1.2,2.2] },
-  { id:'lounge',    name:'Campfire Nook',   icon:'.', kind:'rest',  zone:false, x:47, y:43, ax:47, ay:60, dur:[1.4,2.6] },
-  { id:'pingpong',  name:'Sparring Mat',    icon:'/', kind:'break', zone:false, x:77, y:60, ax:72, ay:70, dur:[1.6,2.8] },
+  { id:'coffee',    name:'Torch Corner',    icon:'☕', kind:'rest',  zone:false, x:88, y:53, ax:88, ay:WALK_LINE_Y, dur:[1.2,2.2] },
+  { id:'lounge',    name:'Blue Sofa',       icon:'🛋️', kind:'rest',  zone:false, x:80, y:65, ax:80, ay:WALK_LINE_Y, dur:[1.4,2.6] },
+  { id:'pingpong',  name:'Floor Break',     icon:'🏓', kind:'break', zone:false, x:32, y:82, ax:32, ay:WALK_LINE_Y, dur:[1.6,2.8] },
 ];
 
 // เหรียญที่เทรด (คู่ USDT) — pair/stream ใช้ต่อ Binance ใน prices.jsx
 const COINS = [
-  { sym:'BTC',  pair:'BTCUSDT',  stream:'btcusdt'  },
-  { sym:'ETH',  pair:'ETHUSDT',  stream:'ethusdt'  },
-  { sym:'BNB',  pair:'BNBUSDT',  stream:'bnbusdt'  },
-  { sym:'SOL',  pair:'SOLUSDT',  stream:'solusdt'  },
-  { sym:'XRP',  pair:'XRPUSDT',  stream:'xrpusdt'  },
-  { sym:'ADA',  pair:'ADAUSDT',  stream:'adausdt'  },
-  { sym:'DOGE', pair:'DOGEUSDT', stream:'dogeusdt' },
-  { sym:'AVAX', pair:'AVAXUSDT', stream:'avaxusdt' },
-  { sym:'LINK', pair:'LINKUSDT', stream:'linkusdt' },
-  { sym:'TON',  pair:'TONUSDT',  stream:'tonusdt'  },
+  { sym:'BTC', icon:'₿', pair:'BTCUSDT', stream:'btcusdt' },
+  { sym:'ETH', icon:'♦', pair:'ETHUSDT', stream:'ethusdt' },
+  { sym:'SOL', icon:'◎', pair:'SOLUSDT', stream:'solusdt' },
 ];
 const TICKERS = COINS.map(c=>c.sym);
 // ราคา fallback ถ้า WebSocket ยังไม่ส่ง tick แรก (ใกล้เคียงราคาตลาดจริง)
@@ -105,4 +100,4 @@ function out(ic, text, st, taskInc, bubble){
   return { bubble:bubble+'…', balanceDelta:0, pnlDelta:0, taskInc, notif:{ic,text,kind:'plain'} };
 }
 
-Object.assign(window, { STATIONS, COINS, TICKERS, generateOutcome, fmtMoney, fmtSigned, fmtClock, fmtPx, fmtQty, livePrice, rnd, irnd, pick });
+Object.assign(window, { STATIONS, WALK_LINE_Y, COINS, TICKERS, generateOutcome, fmtMoney, fmtSigned, fmtClock, fmtPx, fmtQty, livePrice, rnd, irnd, pick });
