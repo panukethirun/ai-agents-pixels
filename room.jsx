@@ -1,4 +1,4 @@
-/* ===== The living room (main dashboard view) ===== */
+/* ===== Dungeon room (main dashboard view) ===== */
 
 function Station({st, busyAgent, onClick, showLabels}){
   const busy = !!busyAgent;
@@ -6,8 +6,8 @@ function Station({st, busyAgent, onClick, showLabels}){
     <div className={'station'+(st.zone?' work':'')+(busy?' busy':'')}
       style={{left:st.x+'%', top:st.y+'%'}} onClick={()=>onClick(st)} title={st.name}>
       <div className="ring"></div>
-      {st.zone && showLabels && <div className="zone-tag">{st.tag}</div>}
       <div className="tip">{st.icon} {st.name}{busy?' · busy':''}</div>
+      {showLabels && st.zone && <div className="zone-tag">{st.tag || st.name}</div>}
       {busy && <div className="spark">✦</div>}
     </div>
   );
@@ -18,15 +18,12 @@ function Room({agents, busySet, onStationClick, tint, showLabels, showNames}){
   // DOM every frame was what made the agents flicker as they passed each other.
   return (
     <div className="stage">
-      <div className={'room'+(tint?' day-tint':'')} style={{backgroundImage:'url(assets/room.png)'}}>
-        {STATIONS.map(st=>(
-          <Station key={st.id} st={st} busyAgent={busySet[st.id]} onClick={onStationClick} showLabels={showLabels} />
-        ))}
+      <div className={'room sao-room'+(tint?' day-tint':'')} style={{backgroundImage:'url(assets/sao-office.png)'}}>
         {agents.map(a=>(
           <Agent key={a.id} a={a} scale={3} showName={showNames} z={100 + Math.round(a.pos.y)} />
         ))}
       </div>
-      <div className="room-hint mono">✦ Click any work zone to send the nearest agent there</div>
+      <div className="room-hint mono">✦ Party standing by on the front rail</div>
     </div>
   );
 }

@@ -2,10 +2,15 @@
 const {useState, useRef, useEffect} = React;
 
 const START_BAL = 12480;
+const WALK_SPEED = 12;
+const PARTY_STANDING_STILL = true;
 
 // agent start positions (spread around the floor) — % of room
 const STARTS = [
-  {x:42,y:58},{x:52,y:62},{x:46,y:66},{x:70,y:64},{x:30,y:70},{x:58,y:52},
+  {x:47,y:WALK_LINE_Y}, // Ping-CEO / Kirito — center
+  {x:55,y:WALK_LINE_Y}, // Asuna — center
+  {x:86,y:WALK_LINE_Y}, // Alice — Quest Board
+  {x:17,y:WALK_LINE_Y}, // Eugeo — Trading
 ];
 
 function App(){
@@ -19,18 +24,30 @@ function App(){
   const [activeAnalysisId,setActiveAnalysisId] = useState(null);
   const [equity,setEquity]   = useState([START_BAL]);
   const [agentView,setAgentView] = useState(
-    AGENTS.map((a,i)=>({...a, pos:{...STARTS[i]}, flip:false, walking:false, bubble:null})));
+    AGENTS.map((a,i)=>({...a, pos:{...STARTS[i]}, flip:false, walking:false, bubble:a.standingBubble||null})));
   const [busySet,setBusySet] = useState({});       // stationId -> agentId
   const [floor,setFloor]     = useState({working:0, walking:0});
   const [clock,setClock]     = useState(570);
   const [day,setDay]         = useState(1);
   const [speed,setSpeed]     = useState(1);
-  const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true});
+  const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true, autoTrade:false});
+  const [tradeBusy,setTradeBusy] = useState(false);
+  const [tradeMsg,setTradeMsg]   = useState(null);
+  const [accountRefresh,setAccountRefresh] = useState(0);
+
+  // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
+  const market = useBinancePrices(COINS);
+  // real Binance Futures testnet account (margin balance, unrealized PnL, positions) — polled via /api/testnet/account
+  const account = useTestnetAccount(10000, accountRefresh);
+  // live trading signal computed from REAL Binance klines (RSI/SMA/momentum) → LONG/SHORT + confidence
+  const signal = useSignal('BTC', 20000);
 
   // ---- mutable sim refs ----
   const agentsRef = useRef(AGENTS.map((a,i)=>({
     id:a.id, name:a.name, role:a.role, tint:a.tint, map:a.map, palette:a.palette,
-    pos:{...STARTS[i]}, target:null, phase:'idle',
+    image:a.image, resource:a.resource, bubbleFrame:a.bubbleFrame, standingBubble:a.standingBubble,
+    bubbleLift:a.bubbleLift, bubbleOffsetX:a.bubbleOffsetX,
+    home:{...STARTS[i]}, pos:{...STARTS[i]}, target:null, phase:'idle',
     workT:0, idleT:rnd(0.4, 2.6+i*0.4), pending:null, lastSt:null, flip:false,
   })));
   const clkRef=useRef(570), dayRef=useRef(1), balRef=useRef(START_BAL), pnlRef=useRef(0), idc=useRef(0);
@@ -86,19 +103,26 @@ function App(){
     };
 
     const stepAgent=(self, dts, running)=>{
+      if(PARTY_STANDING_STILL){
+        self.pos={...self.home};
+        self.target=null; self.pending=null; self.phase='idle'; self.bubble=self.standingBubble||null;
+        return;
+      }
       if(self.phase==='walking'){
         const t=self.target; if(!t){ self.phase='idle'; self.idleT=rnd(0.4,1.4); return; }
-        const dx=t.ax-self.pos.x, dy=t.ay-self.pos.y, dist=Math.hypot(dx,dy);
+        const dx=t.ax-self.pos.x, dist=Math.abs(dx);
+        self.pos.y = WALK_LINE_Y;
         if(dist<0.9){
-          self.pos={x:t.ax,y:t.ay};
+          self.pos={x:t.ax,y:WALK_LINE_Y};
           const oc=generateOutcome(t); self.pending={st:t,oc};
           self.workT=rnd(t.dur[0],t.dur[1]); self.phase='working'; self.bubble=oc.bubble;
         } else {
-          const stp=Math.min(dist, 22*dts);
-          self.pos={x:self.pos.x+dx/dist*stp, y:self.pos.y+dy/dist*stp};
+          const stp=Math.min(dist, WALK_SPEED*dts);
+          self.pos={x:self.pos.x+Math.sign(dx)*stp, y:WALK_LINE_Y};
           if(dx<-0.3) self.flip=true; else if(dx>0.3) self.flip=false;
         }
       } else if(self.phase==='working'){
+        self.pos.y = WALK_LINE_Y;
         self.workT-=dts;
         if(self.workT<=0){
           const p=self.pending; self.pending=null;
@@ -106,6 +130,7 @@ function App(){
           self.phase='idle'; self.idleT=rnd(0.5,2.0); self.bubble=null; self.target=null;
         }
       } else { // idle
+        self.pos.y = WALK_LINE_Y;
         if(running){
           self.idleT-=dts;
           if(self.idleT<=0){
@@ -136,6 +161,8 @@ function App(){
       setFloor(prev=> (prev.working===nW && prev.walking===nWalk)? prev : {working:nW, walking:nWalk});
       setAgentView(agents.map(a=>({
         id:a.id, name:a.name, role:a.role, tint:a.tint, map:a.map, palette:a.palette,
+        image:a.image, resource:a.resource, bubbleFrame:a.bubbleFrame, standingBubble:a.standingBubble,
+        bubbleLift:a.bubbleLift, bubbleOffsetX:a.bubbleOffsetX,
         pos:{x:a.pos.x, y:a.pos.y}, flip:a.flip,
         walking:(a.phase==='walking'), bubble:a.bubble,
         phase:a.phase, atStation:a.target&&a.target.name,
@@ -150,11 +177,12 @@ function App(){
 
   // ---- handlers ----
   const onStationClick=(st)=>{
+    if(PARTY_STANDING_STILL) return;
     // send the nearest non-working agent to this station
     const cands=agentsRef.current.filter(a=>a.phase!=='working');
     const list=cands.length?cands:agentsRef.current;
     let best=list[0], bd=Infinity;
-    list.forEach(a=>{ const d=Math.hypot(a.pos.x-st.ax, a.pos.y-st.ay); if(d<bd){bd=d;best=a;} });
+    list.forEach(a=>{ const d=Math.abs(a.pos.x-st.ax); if(d<bd){bd=d;best=a;} });
     best.target=st; best.lastSt=st.id; best.pending=null; best.phase='walking'; best.bubble=null;
     if(view!=='dashboard') setView('dashboard');
   };
@@ -166,15 +194,58 @@ function App(){
   const togglePlay=()=> setSettings(s=>({...s,autopilot:!s.autopilot}));
   const onReset=()=>{
     balRef.current=START_BAL; pnlRef.current=0; clkRef.current=570; dayRef.current=1;
-    agentsRef.current.forEach((a,i)=>{ a.pos={...STARTS[i]}; a.target=null; a.phase='idle';
-      a.workT=0; a.idleT=rnd(0.4,2.6+i*0.4); a.pending=null; a.lastSt=null; a.flip=false; a.bubble=null; });
+    agentsRef.current.forEach((a,i)=>{ a.home={...STARTS[i]}; a.pos={...STARTS[i]}; a.target=null; a.phase='idle';
+      a.workT=0; a.idleT=rnd(0.4,2.6+i*0.4); a.pending=null; a.lastSt=null; a.flip=false;
+      a.bubble=a.standingBubble||null; });
     setBalance(START_BAL); setPnl(0); setTasks(0); setNotifs([]); setHistory([]);
     setEquity([START_BAL]); setBusySet({}); setClock(570); setDay(1);
-    setAgentView(AGENTS.map((a,i)=>({...a, pos:{...STARTS[i]}, flip:false, walking:false, bubble:null})));
+    setAgentView(AGENTS.map((a,i)=>({...a, pos:{...STARTS[i]}, flip:false, walking:false, bubble:a.standingBubble||null})));
   };
 
+  // เพิ่มแจ้งเตือนเข้า activity log จากนอก sim loop (ใช้กับการเทรด testnet จริง)
+  const pushNotifTop = (n)=> setNotifs(l=>[{id:++idc.current, time:fmtClock(clkRef.current), ...n},...l].slice(0,40));
+
+  // ส่งคำสั่งจริงไป TESTNET (เงินปลอม) — ระบุ notional เป็น USDT แล้วส่ง JSON ผ่าน /api/testnet/order
+  const placeTestnetOrder = async (direction, notionalUsdt, isAuto)=>{
+    if(account.status!=='connected'){ setTradeMsg({ok:false, text:'ต่อ testnet ก่อน'}); return; }
+    const side = direction==='LONG' ? 'BUY' : 'SELL';
+    const amount = Math.max(10, Math.min(1000, Number(notionalUsdt) || 150));
+    setTradeBusy(true); setTradeMsg(null);
+    try{
+      const res = await fetch('/api/testnet/order', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({symbol:'BTCUSDT', direction, side, notionalUsdt:amount}),
+      });
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || ('HTTP '+res.status));
+      const fillPx = parseFloat(d.avgPrice) || parseFloat(d.markPrice) || (signal && signal.price) || 0;
+      const qty = d.executedQty || d.origQty || '';
+      const orderId = d.orderId ? `#${d.orderId}` : '#—';
+      const txt = `${isAuto?'🤖 AUTO ':''}${direction} ${amount} USDT (${side} ${qty} BTC) @ ~$${Math.round(fillPx).toLocaleString('en-US')} · order ${orderId}`;
+      const modeNote = direction==='LONG' ? 'ถ้ามี Short ค้างอยู่ BUY จะลด Short ก่อน' : 'ถ้ามี Long ค้างอยู่ SELL จะลด Long ก่อน';
+      setTradeMsg({ok:true, text:'✅ SUCCESS '+txt, note:modeNote});
+      pushNotifTop({ic:'⚡', text:txt, kind: direction==='LONG'?'up':'down', who:'Signal', tint:'var(--gold)'});
+      setAccountRefresh(x=>x+1);
+    }catch(e){
+      setTradeMsg({ok:false, text:'❌ '+(e.message||e)});
+      pushNotifTop({ic:'⚠️', text:'order ล้มเหลว: '+(e.message||e), kind:'plain', who:'Signal', tint:'var(--gold)'});
+    }finally{ setTradeBusy(false); }
+  };
+
+  // AUTO mode (testnet, opt-in): ยิงคำสั่งเมื่อ confidence >= 80% + cooldown 60s ต่อทิศทาง
+  const autoRef = useRef({t:0, dir:null});
+  useEffect(()=>{
+    if(!settings.autoTrade || !signal || signal.confidence < 80) return;
+    if(account.status!=='connected' || tradeBusy) return;
+    const now = Date.now();
+    if(now - autoRef.current.t < 60000 && autoRef.current.dir===signal.direction) return;
+    autoRef.current = {t:now, dir:signal.direction};
+    placeTestnetOrder(signal.direction, 150, true);
+  }, [signal, settings.autoTrade, account.status]);
+
   const statusLine = settings.autopilot
-    ? `${floor.working} working · ${floor.walking} walking`
+    ? (PARTY_STANDING_STILL ? 'Party standing by' : `${floor.working} working · ${floor.walking} walking`)
     : 'Floor paused — agents idle';
 
   return (
@@ -188,7 +259,7 @@ function App(){
           <div className="now">
             <div className="pin">🤖</div>
             <div className="txt">
-              <div className="lab">The Floor · {AGENTS.length} agents</div>
+              <div className="lab">Dungeon Party · {AGENTS.length} heroes</div>
               <div className="act">{statusLine}</div>
             </div>
           </div>
@@ -203,7 +274,7 @@ function App(){
             tint={settings.tint} showLabels={settings.labels} showNames={settings.names} />}
         {view==='analysis' && <Analysis analyses={analyses} activeAnalysisId={activeAnalysisId}
             setActiveAnalysisId={setActiveAnalysisId} onCreateAnalysis={onCreateAnalysis}
-            agents={agentView} />}
+            agents={agentView} signal={signal} />}
         {view==='history'  && <History history={history} />}
         {view==='settings' && <Settings settings={settings} setSettings={setSettings}
             onReset={onReset} speed={speed} setSpeed={setSpeed} />}
@@ -211,7 +282,9 @@ function App(){
 
       <Sidebar view={view} setView={setView} balance={balance} pnlToday={pnlToday}
         tasksDone={tasks} notifs={notifs} equity={equity} running={settings.autopilot}
-        agents={agentView} />
+        agents={agentView} market={market} account={account} history={history}
+        signal={signal} onTrade={placeTestnetOrder} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
+        autoTrade={settings.autoTrade} canTrade={account.status==='connected'} />
     </div>
   );
 }
