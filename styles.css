@@ -665,11 +665,6 @@ td.down{color:var(--red)}
 .seg button:last-child{border-right:0}
 .seg button.on{background:var(--green);color:#fff}
 
-/* room hint */
-.room-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
-  font-size:15px;color:var(--ink);background:rgba(8,12,18,.78);
-  border:3px solid var(--wood-light);padding:3px 12px;z-index:9;pointer-events:none}
-
 /* reduced motion */
 .no-anim *{animation:none !important}
 

@@ -25,7 +25,6 @@ function Room({agents, busySet, onStationClick, tint, showLabels, showNames, onA
             onAction={onAgentAction} onBubble={onAgentBubble} />
         ))}
       </div>
-      <div className="room-hint mono">✦ Party standing by on the front rail</div>
     </div>
   );
 }
