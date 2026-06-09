@@ -285,7 +285,12 @@ td .who, .notif .who{font-family:'VT323';font-weight:400}
   font-family:'VT323';font-size:16px;white-space:nowrap;color:var(--ink);
   background:#1b2530;border:3px solid var(--wood-light);padding:3px 9px;
   box-shadow:0 3px 0 rgba(0,0,0,.3);animation:pop .2s ease-out;
+  pointer-events:none;
 }
+button.bubble{cursor:default}
+.agent .bubble.actionable{pointer-events:auto;cursor:pointer}
+.agent .bubble.actionable:hover{filter:brightness(1.18);box-shadow:0 0 0 2px rgba(101,227,255,.35),0 3px 0 rgba(0,0,0,.3)}
+.agent .bubble:disabled{opacity:1}
 .agent .bubble.framed{
   min-width:136px;text-align:center;color:#fffbe8;
   background:rgba(9,13,18,.78);border:0;padding:10px 16px 15px;
@@ -499,6 +504,65 @@ td.down{color:var(--red)}
 .signal-msg{margin-top:7px;font-size:14px;line-height:1.2}
 .signal-msg.up{color:var(--up)}
 .signal-msg.down{color:var(--down)}
+
+/* DeepSeek response modal */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+  padding:24px;background:rgba(4,8,14,.68);backdrop-filter:blur(2px)
+}
+.deepseek-log{
+  width:min(920px,calc(100vw - 36px));max-height:min(760px,calc(100vh - 36px));
+  overflow:auto;padding:18px;background:rgba(38,48,58,.98)
+}
+.deepseek-log-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:10px}
+.deepseek-log-head h2{font-size:25px;color:var(--screen);line-height:1}
+.deepseek-close{
+  width:38px;height:38px;justify-content:center;padding:0;font-size:25px;line-height:1;
+  color:var(--ink);background:var(--parch-2)
+}
+.deepseek-empty{
+  border:3px dashed var(--parch-line);background:var(--parch-2);
+  padding:18px;text-align:center;font-size:20px;color:var(--ink-soft)
+}
+.deepseek-empty.down{color:var(--down)}
+.deepseek-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 12px}
+.deepseek-tabs button{
+  cursor:pointer;text-align:left;font-family:'Pixelify Sans';color:var(--ink);
+  background:var(--parch-2);border:3px solid var(--parch-line);padding:7px 8px;
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.08)
+}
+.deepseek-tabs button:hover{background:var(--parch-3)}
+.deepseek-tabs button.on{border-color:var(--screen);background:var(--screen-bg);box-shadow:inset 0 0 0 2px rgba(101,227,255,.28)}
+.deepseek-tabs span{display:block;font-size:17px;line-height:1;color:var(--screen)}
+.deepseek-tabs small{display:block;font-family:'VT323';font-size:15px;line-height:1.05;margin-top:4px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deepseek-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:10px 0 12px}
+.deepseek-summary{
+  min-width:0;background:var(--screen-bg);border:2px solid rgba(101,227,255,.35);padding:8px
+}
+.deepseek-summary span{
+  display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--screen-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.deepseek-summary strong{
+  display:block;font-family:'VT323';font-size:22px;line-height:1.05;color:#d7ffe2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.deepseek-human{
+  background:rgba(7,19,26,.78);border:3px solid rgba(101,227,255,.28);
+  padding:10px 12px;margin-bottom:12px
+}
+.deepseek-human .label{margin-bottom:7px}
+.deepseek-human p{font-family:'VT323';font-size:18px;line-height:1.22;color:#d7ffe2;margin-bottom:5px}
+.deepseek-human p:last-child{margin-bottom:0}
+.deepseek-notes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.deepseek-notes div{
+  background:var(--parch-2);border:2px solid var(--parch-line);padding:8px;min-width:0
+}
+.deepseek-notes div:last-child{grid-column:1/-1}
+.deepseek-notes span{
+  display:block;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:3px
+}
+.deepseek-notes p{font-family:'VT323';font-size:17px;line-height:1.18;color:var(--ink)}
 
 /* live signal pill (analysis header) */
 .analysis-top-right{display:flex;align-items:center;gap:12px}

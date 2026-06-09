@@ -1,0 +1,6 @@
+binance.config.json
+.git
+.claude
+node_modules
+*.log
+.DS_Store

@@ -113,6 +113,10 @@ function sendJSON(res, status, obj) {
 }
 
 function readJSONBody(req) {
+  if (req.body && typeof req.body === 'object') return Promise.resolve(req.body);
+  if (typeof req.body === 'string') {
+    return Promise.resolve(req.body.trim() ? JSON.parse(req.body) : {});
+  }
   return new Promise((resolve, reject) => {
     let body = '';
     req.on('data', (chunk) => {
@@ -247,12 +251,23 @@ function scoreDeepseekFeatures(f) {
   };
 }
 
-async function buildDeepseekFeatures() {
+function deepseekTimeframeConfig(value) {
+  const configs = {
+    '1h': { value: '1h', binance: '1h', oiPeriod: '1h', lookback24: 24, lookback72: 72 },
+    '4h': { value: '4h', binance: '4h', oiPeriod: '4h', lookback24: 6, lookback72: 18 },
+    '1d': { value: '1d', binance: '1d', oiPeriod: '1d', lookback24: 1, lookback72: 3 },
+    '1week': { value: '1week', binance: '1w', oiPeriod: '1d', lookback24: 1, lookback72: 3 },
+  };
+  return configs[value] || configs['1h'];
+}
+
+async function buildDeepseekFeatures(timeframe) {
+  const tf = deepseekTimeframeConfig(timeframe);
   const base = 'https://fapi.binance.com';
   const symbol = 'BTCUSDT';
   const [kRes, oiRes, fRes, premiumRes] = await Promise.all([
-    httpsGetJSON(`${base}/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=260`),
-    httpsGetJSON(`${base}/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=90`),
+    httpsGetJSON(`${base}/fapi/v1/klines?symbol=${symbol}&interval=${tf.binance}&limit=260`),
+    httpsGetJSON(`${base}/futures/data/openInterestHist?symbol=${symbol}&period=${tf.oiPeriod}&limit=90`),
     httpsGetJSON(`${base}/fapi/v1/fundingRate?symbol=${symbol}&limit=100`),
     httpsGetJSON(`${base}/fapi/v1/premiumIndex?symbol=${symbol}`),
   ]);
@@ -283,7 +298,7 @@ async function buildDeepseekFeatures() {
   const fundingRatePct = (parseFloat(premium.lastFundingRate) || fundingValues[fundingValues.length - 1] || 0) * 100;
   const features = {
     symbol: 'BTCUSDT_PERP',
-    timeframe: '1h',
+    timeframe: tf.value,
     price: Number(price.toFixed(2)),
     price_change_1h_pct: Number(pct(price, closes[closes.length - 2]).toFixed(4)),
     ema50: Number(ema(closes, 50).toFixed(2)),
@@ -299,12 +314,46 @@ async function buildDeepseekFeatures() {
     funding_zscore_90: Number(zscore(fundingValues.slice(-90)).toFixed(4)),
     basis_pct: Number(((mark - index) / index * 100).toFixed(4)),
     donchian_55_breakout: price > donchianHigh ? 'up' : price < donchianLow ? 'down' : 'none',
-    last_24h_return_pct: Number(pct(price, closes[closes.length - 25]).toFixed(4)),
-    last_72h_return_pct: Number(pct(price, closes[closes.length - 73]).toFixed(4)),
+    last_24h_return_pct: Number(pct(price, closes[Math.max(0, closes.length - 1 - tf.lookback24)]).toFixed(4)),
+    last_72h_return_pct: Number(pct(price, closes[Math.max(0, closes.length - 1 - tf.lookback72)]).toFixed(4)),
     estimated_fee_roundtrip_pct: 0.08,
     estimated_slippage_pct: 0.03,
   };
   return { ...features, ...scoreDeepseekFeatures(features) };
+}
+
+async function scoreWithDeepseek(keys, timeframe) {
+  const features = await buildDeepseekFeatures(timeframe);
+  if (!isDeepseekConfigured(keys)) {
+    return {
+      configured: false,
+      localOnly: true,
+      message: 'รอ DEEPSEEK_API_KEY ใน binance.config.json',
+      features,
+      preliminary: {
+        signal: features.preliminary_signal,
+        signal_score: features.preliminary_score,
+        confidence: Math.min(95, Math.max(35, Math.abs(features.preliminary_score))),
+      },
+    };
+  }
+  const payload = {
+    model: 'deepseek-chat',
+    response_format: { type: 'json_object' },
+    temperature: 0.1,
+    messages: [
+      { role: 'system', content: DEEPSEEK_SYSTEM_PROMPT },
+      { role: 'user', content: JSON.stringify(features) },
+    ],
+  };
+  const r = await httpsPostJSON('https://api.deepseek.com/chat/completions', {
+    Authorization: `Bearer ${keys.deepseekApiKey}`,
+  }, payload);
+  if (r.status !== 200) return { configured: true, error: 'deepseek error', detail: r.data, features };
+  const content = r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content;
+  const review = parseDeepseekJSON(content);
+  if (!review) return { configured: true, error: 'DeepSeek did not return valid JSON', raw: content, features };
+  return { configured: true, localOnly: false, features, review: normalizeDeepseekReview(features, review) };
 }
 
 const DEEPSEEK_SYSTEM_PROMPT = `You are a quantitative crypto futures signal scoring engine.
@@ -373,38 +422,26 @@ async function handleApi(req, res) {
   // DeepSeek scorer: server computes market features first, then sends numeric JSON only.
   if (pathname === '/api/deepseek/signal' && method === 'POST') {
     const keys = loadKeys();
+    let body = {};
+    try { body = await readJSONBody(req); }
+    catch (e) { return sendJSON(res, 400, { error: e.message }); }
     try {
-      const features = await buildDeepseekFeatures();
-      if (!isDeepseekConfigured(keys)) {
+      const allowed = new Set(['1h', '4h', '1d', '1week']);
+      const requested = Array.isArray(body.timeframes) ? body.timeframes : [body.timeframe || '1h'];
+      const timeframes = [...new Set(requested.filter((t) => allowed.has(t)))].slice(0, 4);
+      const list = timeframes.length ? timeframes : ['1h'];
+      if (list.length > 1) {
+        const results = await Promise.all(list.map((tf) => scoreWithDeepseek(keys, tf)));
         return sendJSON(res, 200, {
-          configured: false,
-          localOnly: true,
-          message: 'รอ DEEPSEEK_API_KEY ใน binance.config.json',
-          features,
-          preliminary: {
-            signal: features.preliminary_signal,
-            signal_score: features.preliminary_score,
-            confidence: Math.min(95, Math.max(35, Math.abs(features.preliminary_score))),
-          },
+          configured: isDeepseekConfigured(keys),
+          localOnly: !isDeepseekConfigured(keys),
+          multi: true,
+          timeframes: list,
+          results,
         });
       }
-      const payload = {
-        model: 'deepseek-chat',
-        response_format: { type: 'json_object' },
-        temperature: 0.1,
-        messages: [
-          { role: 'system', content: DEEPSEEK_SYSTEM_PROMPT },
-          { role: 'user', content: JSON.stringify(features) },
-        ],
-      };
-      const r = await httpsPostJSON('https://api.deepseek.com/chat/completions', {
-        Authorization: `Bearer ${keys.deepseekApiKey}`,
-      }, payload);
-      if (r.status !== 200) return sendJSON(res, r.status, { configured: true, error: 'deepseek error', detail: r.data, features });
-      const content = r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content;
-      const review = parseDeepseekJSON(content);
-      if (!review) return sendJSON(res, 502, { configured: true, error: 'DeepSeek did not return valid JSON', raw: content, features });
-      return sendJSON(res, 200, { configured: true, localOnly: false, features, review: normalizeDeepseekReview(features, review) });
+      const result = await scoreWithDeepseek(keys, list[0]);
+      return sendJSON(res, result.error ? 502 : 200, result);
     } catch (e) {
       return sendJSON(res, 502, { configured: isDeepseekConfigured(keys), error: String(e.message || e) });
     }
@@ -554,14 +591,19 @@ function serveStatic(req, res) {
   });
 }
 
-const server = http.createServer((req, res) => {
+function requestHandler(req, res) {
   const pathname = req.url.split('?')[0];
   if (pathname.startsWith('/api/')) { handleApi(req, res).catch((e) => sendJSON(res, 500, { error: String(e) })); return; }
   serveStatic(req, res);
-});
+}
 
-server.listen(PORT, () => {
-  const k = loadKeys();
-  console.log(`PixelCrypto server on http://localhost:${PORT}`);
-  console.log(`Binance testnet keys: ${isConfigured(k) ? 'configured ✓' : 'NOT set (ใส่ใน binance.config.json)'}`);
-});
+if (require.main === module) {
+  const server = http.createServer(requestHandler);
+  server.listen(PORT, () => {
+    const k = loadKeys();
+    console.log(`PixelCrypto server on http://localhost:${PORT}`);
+    console.log(`Binance testnet keys: ${isConfigured(k) ? 'configured ✓' : 'NOT set (ใส่ใน binance.config.json)'}`);
+  });
+}
+
+module.exports = { handleApi, requestHandler };

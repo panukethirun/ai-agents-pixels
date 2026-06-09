@@ -14,6 +14,98 @@ const STARTS = [
   {x:73,y:WALK_LINE_Y}, // Sinon — DeepSeek signal scorer
 ];
 
+function DeepseekLogModal({deepseek, onClose}){
+  const result = deepseek && deepseek.result;
+  const results = result && result.multi ? (result.results || []) : (result ? [result] : []);
+  const [activeTf,setActiveTf] = React.useState('1h');
+  const active = results.find(r => r && r.features && r.features.timeframe === activeTf) || results[0];
+  const features = active && active.features;
+  const review = active && (active.review || active.preliminary);
+  const fmt = (v)=> v == null ? '—' : String(v);
+  const directionText = (sig)=>{
+    if(!sig) return 'ยังไม่มีสัญญาณ';
+    if(sig.includes('LONG')) return 'ฝั่ง Long มีน้ำหนักมากกว่า';
+    if(sig.includes('SHORT')) return 'ฝั่ง Short มีน้ำหนักมากกว่า';
+    return 'ยังไม่ควรเข้าเทรด รอสัญญาณชัดขึ้น';
+  };
+  const humanSummary = features && review ? [
+    `ภาพรวม ${features.timeframe}: ${directionText(review.signal)} (${review.signal || '—'}, score ${review.signal_score ?? '—'}, confidence ${review.confidence ?? '—'}%).`,
+    `ราคาอยู่ที่ $${Number(features.price||0).toLocaleString('en-US')} โดย trend score ${features.trend_score} และ momentum score ${features.momentum_score}.`,
+    `แรงจาก derivatives score ${features.derivatives_score}, OI z-score ${features.open_interest_zscore_48}, funding z-score ${features.funding_zscore_90}.`,
+    `Action ที่ระบบสรุปคือ ${review.recommended_action || 'WAIT'} และ leverage สูงสุดที่แนะนำคือ ${review.max_leverage ?? '—'}x.`,
+  ] : [];
+  const rows = features ? [
+    ['Price', '$'+Number(features.price||0).toLocaleString('en-US')],
+    ['Timeframe', features.timeframe],
+    ['Preliminary', `${features.preliminary_signal} · ${features.preliminary_score}`],
+    ['DeepSeek', review ? `${review.signal || '—'} · ${review.signal_score ?? '—'} · ${review.confidence ?? '—'}%` : '—'],
+    ['Action', review && review.recommended_action],
+    ['Leverage', review && `${review.max_leverage}x`],
+    ['RSI14', features.rsi14],
+    ['ATR %', features.atr_pct],
+    ['OI z-score', features.open_interest_zscore_48],
+    ['Funding z-score', features.funding_zscore_90],
+  ] : [];
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="deepseek-log frame" role="dialog" aria-modal="true" aria-label="DeepSeek API response log"
+        onClick={(e)=>e.stopPropagation()}>
+        <div className="deepseek-log-head">
+          <div>
+            <div className="label">DeepSeek API Response</div>
+            <h2>Sinon Signal Log</h2>
+          </div>
+          <button className="btn deepseek-close" type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        {deepseek.busy && <div className="deepseek-empty mono">Sending feature JSON to DeepSeek...</div>}
+        {deepseek.error && <div className="deepseek-empty mono down">Error: {deepseek.error}</div>}
+        {!deepseek.busy && !deepseek.error && !result && (
+          <div className="deepseek-empty mono">ยังไม่มี response ล่าสุด กด Send ที่ Sinon ก่อนครับ</div>
+        )}
+        {result && (
+          <>
+            <div className="deepseek-tabs" role="tablist" aria-label="DeepSeek timeframe results">
+              {results.map((r)=>{
+                const f = r && r.features;
+                const rv = r && (r.review || r.preliminary);
+                if(!f) return null;
+                return <button key={f.timeframe} className={f.timeframe === (features && features.timeframe) ? 'on' : ''}
+                  type="button" onClick={()=>setActiveTf(f.timeframe)}>
+                  <span>{f.timeframe}</span>
+                  <small>{rv && rv.signal ? rv.signal : 'ERROR'} {rv && rv.signal_score != null ? rv.signal_score : ''}</small>
+                </button>;
+              })}
+            </div>
+            <div className="deepseek-summary-grid">
+              {rows.map(([k,v])=>(
+                <div className="deepseek-summary" key={k}>
+                  <span>{k}</span>
+                  <strong>{fmt(v)}</strong>
+                </div>
+              ))}
+            </div>
+            {humanSummary.length > 0 && (
+              <div className="deepseek-human">
+                <div className="label">Human Summary</div>
+                {humanSummary.map((line,i)=><p key={i}>{line}</p>)}
+              </div>
+            )}
+            {review && (
+              <div className="deepseek-notes">
+                <div><span>Entry</span><p>{fmt(review.entry_condition)}</p></div>
+                <div><span>Stop Loss</span><p>{fmt(review.stop_loss_logic)}</p></div>
+                <div><span>Take Profit</span><p>{fmt(review.take_profit_logic)}</p></div>
+                <div><span>Invalidation</span><p>{fmt(review.invalidation)}</p></div>
+                <div><span>Reason</span><p>{fmt(review.reason_short)}</p></div>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function App(){
   const [view,setView]       = useState('dashboard');
   const [balance,setBalance] = useState(START_BAL);
@@ -37,6 +129,7 @@ function App(){
   const [accountRefresh,setAccountRefresh] = useState(0);
   const [signalTimeframe,setSignalTimeframe] = useState('4h');
   const [deepseek,setDeepseek] = useState({busy:false, result:null, error:null});
+  const [deepseekLogOpen,setDeepseekLogOpen] = useState(false);
 
   // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
   const market = useBinancePrices(COINS);
@@ -213,16 +306,17 @@ function App(){
     if(deepseek.busy) return;
     setDeepseek({busy:true, result:deepseek.result, error:null});
     try{
-      const res = await fetch('/api/deepseek/signal', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:'BTCUSDT', timeframe:'1h'}) });
+      const res = await fetch('/api/deepseek/signal', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:'BTCUSDT', timeframes:['1h','4h','1d','1week']}) });
       const d = await res.json();
       if(!res.ok) throw new Error(d.error || ('HTTP '+res.status));
       setDeepseek({busy:false, result:d, error:null});
-      const review = d.review || d.preliminary || {};
-      const sig = review.signal || (d.features && d.features.preliminary_signal) || 'LOCAL';
-      const score = review.signal_score ?? (d.features && d.features.preliminary_score);
+      const primary = d.multi ? (d.results || []).find(r=>r.features && r.features.timeframe === '1h') || (d.results || [])[0] : d;
+      const review = (primary && (primary.review || primary.preliminary)) || {};
+      const sig = review.signal || (primary && primary.features && primary.features.preliminary_signal) || 'LOCAL';
+      const score = review.signal_score ?? (primary && primary.features && primary.features.preliminary_score);
       const text = d.configured
-        ? `DeepSeek ${sig} · score ${score}`
-        : `DeepSeek key pending · local ${sig} · score ${score}`;
+        ? `DeepSeek ${sig} · score ${score} · 4 TF`
+        : `DeepSeek key pending · local ${sig} · score ${score} · 4 TF`;
       pushNotifTop({ic:'🧠', text, kind:sig.includes('SHORT')?'down':sig.includes('LONG')?'up':'plain', who:'Sinon', tint:'#65e3ff'});
     }catch(e){
       setDeepseek({busy:false, result:null, error:e.message||String(e)});
@@ -301,15 +395,18 @@ function App(){
       return {...a, bubble:`${signal.sym} ${signal.direction} ${signal.confidence}%!`};
     }
     if(a.name === 'Sinon'){
-      if(deepseek.busy) return {...a, bubble:'Sending features...', actionBusy:true};
-      if(deepseek.error) return {...a, bubble:'DeepSeek error', actionBusy:false};
-      const review = deepseek.result && (deepseek.result.review || deepseek.result.preliminary);
+      if(deepseek.busy) return {...a, bubble:'Sending features...', actionBusy:true, bubbleAction:true};
+      if(deepseek.error) return {...a, bubble:'DeepSeek error', actionBusy:false, bubbleAction:true};
+      const primary = deepseek.result && deepseek.result.multi
+        ? (deepseek.result.results || []).find(r=>r.features && r.features.timeframe === '1h') || (deepseek.result.results || [])[0]
+        : deepseek.result;
+      const review = primary && (primary.review || primary.preliminary);
       if(review){
         const sig = review.signal || 'NO_TRADE';
-        const score = review.signal_score ?? (deepseek.result.features && deepseek.result.features.preliminary_score);
-        return {...a, bubble:`${sig} ${score}`, actionBusy:false};
+        const score = review.signal_score ?? (primary.features && primary.features.preliminary_score);
+        return {...a, bubble:`${sig} ${score}`, actionBusy:false, bubbleAction:true};
       }
-      return {...a, bubble:'DeepSeek scorer', actionBusy:false};
+      return {...a, bubble:'DeepSeek scorer', actionBusy:false, bubbleAction:true};
     }
     return a;
   });
@@ -318,9 +415,10 @@ function App(){
     <div className={'app'+(settings.anim?'':' no-anim')}>
       <div className="main">
         {view==='dashboard' &&
-          <Room agents={displayAgents} busySet={busySet} onStationClick={onStationClick}
+          <Room agents={deepseekLogOpen ? [] : displayAgents} busySet={busySet} onStationClick={onStationClick}
             tint={settings.tint} showLabels={settings.labels} showNames={settings.names}
-            onAgentAction={(agent)=>{ if(agent.name === 'Sinon') sendDeepseekSignal(); }} />}
+            onAgentAction={(agent)=>{ if(agent.name === 'Sinon') sendDeepseekSignal(); }}
+            onAgentBubble={(agent)=>{ if(agent.name === 'Sinon') setDeepseekLogOpen(true); }} />}
         {view==='analysis' && <Analysis analyses={analyses} activeAnalysisId={activeAnalysisId}
             setActiveAnalysisId={setActiveAnalysisId} onCreateAnalysis={onCreateAnalysis}
             agents={agentView} signal={signal} />}
@@ -335,6 +433,7 @@ function App(){
         signal={signal} onTrade={placeTestnetOrder} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
         autoTrade={settings.autoTrade} canTrade={account.status==='connected'}
         signalTimeframe={signalTimeframe} setSignalTimeframe={setSignalTimeframe} />
+      {deepseekLogOpen && <DeepseekLogModal deepseek={deepseek} onClose={()=>setDeepseekLogOpen(false)} />}
     </div>
   );
 }

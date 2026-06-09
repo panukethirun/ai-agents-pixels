@@ -278,7 +278,7 @@ function ImageSprite({src, map, scale=3, palette=SPRITE_PALETTE, flip=false, cla
 }
 
 // a single walking agent (positioned by parent via left/top %)
-function Agent({a, scale=3, showName, z, onAction}){
+function Agent({a, scale=3, showName, z, onAction, onBubble}){
   const bubbleStyle = {
     ...(a.bubbleLift ? {bottom:a.bubbleLift+'%'} : {}),
     ...(a.bubbleOffsetX ? {'--bubble-x':a.bubbleOffsetX+'px'} : {}),
@@ -287,7 +287,11 @@ function Agent({a, scale=3, showName, z, onAction}){
   return (
     <div className={'agent'+(a.walking?' walking':'')}
       style={{left:a.pos.x+'%', top:a.pos.y+'%', zIndex:z, marginLeft:(a.nudgeX||0)+'px'}}>
-      {a.bubble && <div className={'bubble'+(a.bubbleFrame?' framed':'')} style={bubbleStyle}>{a.bubble}</div>}
+      {a.bubble && <button className={'bubble'+(a.bubbleFrame?' framed':'')+(a.bubbleAction?' actionable':'')} type="button"
+        style={bubbleStyle} disabled={!a.bubbleAction}
+        onClick={(e)=>{ e.stopPropagation(); if(a.bubbleAction) onBubble && onBubble(a); }}>
+        {a.bubble}
+      </button>}
       {a.actionLabel && <button className="agent-action btn" type="button" title={a.actionTitle || a.actionLabel}
         disabled={a.actionBusy} onClick={(e)=>{ e.stopPropagation(); onAction && onAction(a); }}>
         {a.actionBusy ? 'Sending...' : a.actionLabel}

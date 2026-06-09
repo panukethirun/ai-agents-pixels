@@ -1,4 +1,8 @@
-# PixelCrypto — SAO Futures Trading Dashboard
+<p align="center">
+  <img src="assets/github-logo.png" alt="PixelCrypto logo" width="140" height="140">
+</p>
+
+<h1 align="center">PixelCrypto — SAO Futures Trading Dashboard</h1>
 
 แดชบอร์ดเทรด BTC Futures สไตล์ pixel-art / Sword Art Online สำหรับทดลองระบบสัญญาณ, Binance Futures Testnet และ DeepSeek signal scoring ในหน้าเดียว
 
@@ -29,7 +33,7 @@ PixelCrypto เป็นเว็บแอป React แบบไม่ต้อ�
 - **Open Long / Open Short** — ใส่จำนวน USDT แล้วส่ง JSON ไปเปิด position จริงบน testnet
 - **Stop loss / Take profit** — ส่ง SL/TP อัตโนมัติหลัง market order สำเร็จ
 - **DeepSeek Signal Scorer** — ปุ่ม `Send` ที่ตัวละคร Sinon เพื่อส่ง feature JSON ให้ DeepSeek review สัญญาณ
-- **Web icon** — favicon/app icon แบบ rounded pixel-art
+- **Project logo** — README/GitHub logo, favicon และ app icon แบบ rounded pixel-art
 
 ## Live Signal ทำงานอย่างไร?
 
@@ -77,12 +81,13 @@ Live Signal แสดงระยะ `3 * ATR(14)` และตอนส่ง o
 
 เมื่อกดปุ่ม `Send` ระบบจะ:
 
-1. ดึงข้อมูล BTCUSDT Perpetual Futures จาก Binance Futures
+1. ดึงข้อมูล BTCUSDT Perpetual Futures จาก Binance Futures ทั้ง `1h`, `4h`, `1d`, `1week`
 2. คำนวณ feature เช่น EMA, RSI, MACD histogram, ATR, volume z-score, OI, funding, basis, Donchian breakout
 3. คำนวณ preliminary score เองก่อน
 4. ส่ง feature JSON ให้ DeepSeek
 5. รับ strict JSON กลับมาเป็น final signal review
 6. normalize response ให้เข้ารูปแบบที่ระบบใช้ เช่น `ENTER_LONG`, `ENTER_SHORT`, `WAIT`
+7. แสดงผลใน `Sinon Signal Log` เป็นภาษาคนอ่าน พร้อม tab แยกแต่ละ timeframe
 
 ถ้ายังไม่มี `DEEPSEEK_API_KEY` ระบบจะคืน local preliminary score แทน เพื่อให้ UI ใช้งานรอ key ได้
 
@@ -108,6 +113,50 @@ http://localhost:3000
 ```bash
 PORT=4000 node server.js
 ```
+
+## Deploy บน Vercel
+
+โปรเจคนี้รองรับ Vercel แล้ว โดยยังเก็บ local dev server เดิมไว้
+
+- Local: `node server.js` รันที่ `http://localhost:3000`
+- Vercel: static files อยู่ที่ root และ API อยู่ใต้ `api/`
+- API logic ใช้ handler เดียวกับ local server เพื่อลดโอกาส behavior ต่างกัน
+
+ไฟล์ที่เกี่ยวข้อง:
+
+```text
+vercel.json
+.vercelignore
+api/testnet/status.js
+api/testnet/account.js
+api/testnet/order.js
+api/deepseek/signal.js
+server.js
+```
+
+ตั้งค่า Environment Variables ใน Vercel Project Settings:
+
+```text
+BINANCE_TESTNET_KEY
+BINANCE_TESTNET_SECRET
+DEEPSEEK_API_KEY
+```
+
+หลัง deploy แล้ว endpoint จะเป็น path เดิม:
+
+```text
+https://your-project.vercel.app/api/testnet/status
+https://your-project.vercel.app/api/testnet/account
+https://your-project.vercel.app/api/testnet/order
+https://your-project.vercel.app/api/deepseek/signal
+```
+
+หมายเหตุ:
+
+- ห้าม upload `binance.config.json` ไป Vercel
+- `.vercelignore` กันไฟล์ config/local/private ออกจาก Vercel CLI deploy
+- Vercel Functions ตั้ง `maxDuration` ไว้ 30 วินาที เพราะ DeepSeek multi-timeframe อาจใช้เวลาหลาย request
+- ถ้าต้องการ GitHub Social Preview ให้ใช้รูป `assets/github-logo.png` ใน repo settings
 
 ## การตั้งค่า API Keys
 
@@ -172,6 +221,8 @@ curl -sS -X POST http://localhost:3000/api/testnet/order \
 .
 ├── index.html                  # Entry point, loads React/Babel/CDN scripts
 ├── server.js                   # Static server + Binance testnet bridge + DeepSeek scorer
+├── vercel.json                 # Vercel functions/static config
+├── api/                        # Vercel API functions that reuse server.js handler
 ├── app.jsx                     # Root state, dashboard wiring, order action handlers
 ├── signals.jsx                 # Live Signal calculation and Open Long/Short UI
 ├── prices.jsx                  # Live prices and testnet account hooks
@@ -188,6 +239,7 @@ curl -sS -X POST http://localhost:3000/api/testnet/order \
 │   └── analysis-model.test.js
 ├── assets/
 │   ├── sao-office.png
+│   ├── github-logo.png
 │   ├── web-icon.png
 │   └── agents/sao/
 └── binance.config.example.json

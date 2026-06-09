@@ -13,14 +13,15 @@ function Station({st, busyAgent, onClick, showLabels}){
   );
 }
 
-function Room({agents, busySet, onStationClick, tint, showLabels, showNames, onAgentAction}){
+function Room({agents, busySet, onStationClick, tint, showLabels, showNames, onAgentAction, onAgentBubble}){
   // Keep a STABLE DOM order (by id) and use z-index for depth — re-sorting the
   // DOM every frame was what made the agents flicker as they passed each other.
   return (
     <div className="stage">
       <div className={'room sao-room'+(tint?' day-tint':'')} style={{backgroundImage:'url(assets/sao-office.png)'}}>
         {agents.map(a=>(
-          <Agent key={a.id} a={a} scale={3} showName={showNames} z={100 + Math.round(a.pos.y)} onAction={onAgentAction} />
+          <Agent key={a.id} a={a} scale={3} showName={showNames} z={100 + Math.round(a.pos.y)}
+            onAction={onAgentAction} onBubble={onAgentBubble} />
         ))}
       </div>
       <div className="room-hint mono">✦ Party standing by on the front rail</div>
