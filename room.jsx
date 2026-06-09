@@ -13,14 +13,15 @@ function Station({st, busyAgent, onClick, showLabels}){
   );
 }
 
-function Room({agents, busySet, onStationClick, tint, showLabels, showNames, onAgentAction, onAgentBubble}){
+function Room({agents, busySet, onStationClick, tint, showLabels, showNames, onAgentAction, onAgentBubble, compact}){
   // Keep a STABLE DOM order (by id) and use z-index for depth — re-sorting the
   // DOM every frame was what made the agents flicker as they passed each other.
+  const agentScale = compact ? 2.35 : 3;
   return (
     <div className="stage">
-      <div className={'room sao-room'+(tint?' day-tint':'')} style={{backgroundImage:'url(assets/sao-office.png)'}}>
+      <div className={'room sao-room'+(tint?' day-tint':'')+(compact?' compact-agents':'')} style={{backgroundImage:'url(assets/sao-office.png)'}}>
         {agents.map(a=>(
-          <Agent key={a.id} a={a} scale={3} showName={showNames} z={100 + Math.round(a.pos.y)}
+          <Agent key={a.id} a={a} scale={agentScale} showName={showNames} z={100 + Math.round(a.pos.y)}
             onAction={onAgentAction} onBubble={onAgentBubble} />
         ))}
       </div>

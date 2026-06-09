@@ -323,7 +323,21 @@ async function buildDeepseekFeatures(timeframe) {
 }
 
 async function scoreWithDeepseek(keys, timeframe) {
-  const features = await buildDeepseekFeatures(timeframe);
+  let features = null;
+  try {
+    features = await buildDeepseekFeatures(timeframe);
+  } catch (e) {
+    return {
+      configured: isDeepseekConfigured(keys),
+      localOnly: !isDeepseekConfigured(keys),
+      timeframe,
+      error: 'feature build failed',
+      debug: {
+        stage: 'buildDeepseekFeatures',
+        message: String(e.message || e),
+      },
+    };
+  }
   if (!isDeepseekConfigured(keys)) {
     return {
       configured: false,
@@ -349,11 +363,42 @@ async function scoreWithDeepseek(keys, timeframe) {
   const r = await httpsPostJSON('https://api.deepseek.com/chat/completions', {
     Authorization: `Bearer ${keys.deepseekApiKey}`,
   }, payload);
-  if (r.status !== 200) return { configured: true, error: 'deepseek error', detail: r.data, features };
+  if (r.status !== 200) return {
+    configured: true,
+    error: 'deepseek error',
+    detail: r.data,
+    features,
+    debug: {
+      stage: 'deepseekRequest',
+      status: r.status,
+      endpoint: 'https://api.deepseek.com/chat/completions',
+      detail: r.data,
+    },
+  };
   const content = r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content;
   const review = parseDeepseekJSON(content);
-  if (!review) return { configured: true, error: 'DeepSeek did not return valid JSON', raw: content, features };
-  return { configured: true, localOnly: false, features, review: normalizeDeepseekReview(features, review) };
+  if (!review) return {
+    configured: true,
+    error: 'DeepSeek did not return valid JSON',
+    raw: content,
+    features,
+    debug: {
+      stage: 'parseDeepseekJSON',
+      raw: content,
+    },
+  };
+  return {
+    configured: true,
+    localOnly: false,
+    features,
+    review: normalizeDeepseekReview(features, review),
+    debug: {
+      stage: 'ok',
+      status: r.status,
+      model: r.data && r.data.model,
+      usage: r.data && r.data.usage,
+    },
+  };
 }
 
 const DEEPSEEK_SYSTEM_PROMPT = `You are a quantitative crypto futures signal scoring engine.
@@ -438,12 +483,26 @@ async function handleApi(req, res) {
           multi: true,
           timeframes: list,
           results,
+          debug: {
+            environment: process.env.VERCEL ? 'vercel' : 'local',
+            deepseekConfigured: isDeepseekConfigured(keys),
+            resultCount: results.length,
+            failedCount: results.filter((r) => r && r.error).length,
+          },
         });
       }
       const result = await scoreWithDeepseek(keys, list[0]);
       return sendJSON(res, result.error ? 502 : 200, result);
     } catch (e) {
-      return sendJSON(res, 502, { configured: isDeepseekConfigured(keys), error: String(e.message || e) });
+      return sendJSON(res, 502, {
+        configured: isDeepseekConfigured(keys),
+        error: String(e.message || e),
+        debug: {
+          stage: 'apiRoute',
+          environment: process.env.VERCEL ? 'vercel' : 'local',
+          deepseekConfigured: isDeepseekConfigured(keys),
+        },
+      });
     }
   }
 

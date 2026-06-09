@@ -30,20 +30,23 @@ function Spark({data}){
   return <canvas ref={ref} width={264} height={46} className="spark" />;
 }
 
-function NavBtn({icon,label,id,view,setView,badge}){
+function NavBtn({icon,label,id,view,setView,badge,className='',active,onClick}){
+  const isActive = active == null ? view===id : active;
   return (
-    <button className={'nav-btn'+(view===id?' active':'')} onClick={()=>setView(id)} title={label} aria-label={label}>
+    <button className={'nav-btn '+className+(isActive?' active':'')} onClick={onClick || (()=>setView(id))} title={label} aria-label={label}>
       <span className="ico">{icon}</span>
       {badge>0 && <span className="badge">{badge}</span>}
     </button>
   );
 }
 
-function TopNav({view,setView}){
+function TopNav({view,setView,mobilePreview,setMobilePreview}){
   return (
     <nav className="top-nav frame" aria-label="Main navigation">
       <NavBtn icon="🏠" label="Dashboard" id="dashboard" view={view} setView={setView} />
-      <NavBtn icon="🧠" label="Analysis"  id="analysis"  view={view} setView={setView} />
+      <NavBtn icon="📱" label="Mobile UI" id="mobile-preview" view={view} setView={setView}
+        className="mobile-preview-toggle" active={mobilePreview}
+        onClick={()=>setMobilePreview && setMobilePreview(v=>!v)} />
       <NavBtn icon="📜" label="History"   id="history"   view={view} setView={setView} badge={0} />
       <NavBtn icon="⚙️" label="Settings"  id="settings"  view={view} setView={setView} />
     </nav>
@@ -51,12 +54,15 @@ function TopNav({view,setView}){
 }
 
 function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,history,
-                  signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade,signalTimeframe,setSignalTimeframe}){
+                  signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade,signalTimeframe,setSignalTimeframe,
+                  mobilePreview,setMobilePreview}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
   const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
   const fmtSigned2 = (n)=> (n>=0?'+':'-')+'$'+Math.abs(Number(n||0)).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
   const fmtPct2 = (n)=> (n>=0?'+':'')+Number(n||0).toFixed(2)+'%';
+  const fmtBtcPrice = (n)=> n == null ? '—' : '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const btc = market && market.quotes && market.quotes.find(q=>q.sym==='BTC');
   const currentPosition = (positions, paperHistory)=>{
     const p = positions && positions.find(pos=>Number(pos.positionAmt)!==0);
     if(p){
@@ -75,16 +81,16 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
   const pos = currentPosition(acct ? acct.positions : null, acct ? null : history);
   return (
     <>
-    <TopNav view={view} setView={setView} />
+    <TopNav view={view} setView={setView} mobilePreview={mobilePreview} setMobilePreview={setMobilePreview} />
     <aside className="sidebar">
       <div className="side-card frame tight">
-        <div className="brand">
-          <div className="ava"><AvatarFace scale={4} /></div>
+        <div className="btc-ticker">
+          <div className="btc-icon">₿</div>
           <div>
-            <h1>DUNGEONOPS</h1>
-            <div className="sub">
-              <span className="status-dot" style={{background: running?'var(--up)':'var(--gold)'}}></span>
-              {running? `${agents?agents.length:0} heroes in party` : 'party paused'}
+            <h1>BTCUSDT</h1>
+            <div className="sub btc-sub">
+              <span>{fmtBtcPrice(btc && btc.price)}</span>
+              <em className={(btc && btc.changePct || 0) >= 0 ? 'up' : 'down'}>{btc && btc.changePct != null ? fmtPct2(btc.changePct) : 'connecting'}</em>
             </div>
           </div>
         </div>
@@ -131,8 +137,6 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
       <SignalCard signal={signal} onTrade={onTrade} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
         auto={autoTrade} canTrade={canTrade}
         timeframe={signalTimeframe} onTimeframeChange={setSignalTimeframe} />
-
-      <MarketPrices market={market} />
 
       <div className="side-card frame tight">
         <div className="label">The Team</div>
