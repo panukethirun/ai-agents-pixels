@@ -156,6 +156,8 @@ function useSignal(sym, refreshMs, timeframe) {
     const pair = sym.endsWith('USDT') ? sym : sym + 'USDT';
     const refresh = refreshMs || 20000;
     const tf = _timeframeConfig(timeframe);
+    // เปลี่ยน timeframe → โชว์สถานะกำลังคำนวณใหม่ทันที (ค่าจริงตามมาเมื่อ fetch เสร็จ)
+    setSig((prev) => prev ? { ...prev, loading: true } : prev);
     const load = async () => {
       try {
         const [kRes, oiRes, fRes] = await Promise.all([
@@ -196,7 +198,7 @@ function _exitPlan(signal, direction) {
     : { stopLoss: price + stopDistance, takeProfit: price - stopDistance * 2 };
 }
 
-function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, timeframe, onTimeframeChange }) {
+function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, timeframe, onTimeframeChange, deepseek, onAskAI, onOpenDeepseekLog }) {
   const [notional, setNotional] = React.useState(150);
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
@@ -223,6 +225,16 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, time
   const parsedNotional = Math.max(10, Math.min(1000, Number(notional) || 0));
   const longExit = _exitPlan(signal, 'LONG');
   const shortExit = _exitPlan(signal, 'SHORT');
+  // DeepSeek (Ask AI) summary
+  const ds = deepseek || {};
+  const dsResult = ds.result;
+  const dsPrimary = dsResult && dsResult.multi
+    ? (dsResult.results || []).find(r => r.features && r.features.timeframe === '1h') || (dsResult.results || [])[0]
+    : dsResult;
+  const dsReview = dsPrimary && (dsPrimary.review || dsPrimary.preliminary);
+  const dsSig = dsReview && (dsReview.signal || (dsPrimary.features && dsPrimary.features.preliminary_signal));
+  const dsScore = dsReview && (dsReview.signal_score ?? (dsPrimary.features && dsPrimary.features.preliminary_score));
+  const dsCls = dsSig ? (dsSig.includes('LONG') ? 'up' : dsSig.includes('SHORT') ? 'short' : '') : '';
   return (
     <div className={'side-card frame tight signal-card' + (hot ? ' hot' : '')}>
       <div className="label market-head">
@@ -241,13 +253,29 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, time
         <span className="signal-conf mono">{signal.confidence}%</span>
       </div>
       <div className="signal-bar"><div className={'signal-fill ' + dirClass} style={{ width: signal.confidence + '%' }}></div></div>
-      <div className="signal-meta mono">{signal.timeframe || '4h'} · ${_px(signal.price)}</div>
-      <div className="signal-meta mono">3ATR stop · ${_px(signal.stopDistance)}</div>
-      <div className="signal-meta mono">SL/TP auto · Long ${_px(longExit && longExit.stopLoss)}/${_px(longExit && longExit.takeProfit)}</div>
-      <div className="signal-meta mono">SL/TP auto · Short ${_px(shortExit && shortExit.stopLoss)}/${_px(shortExit && shortExit.takeProfit)}</div>
-      <div className="signal-meta mono">Updated {_fmtClockTime(signal.updatedAt)} · Next {_fmtCountdown((signal.nextRefreshAt || 0) - now)}</div>
+      <div className={'signal-meta mono' + (signal.loading ? ' calc' : '')}>SL/TP auto · Long ${_px(longExit && longExit.stopLoss)}/${_px(longExit && longExit.takeProfit)}</div>
+      <div className={'signal-meta mono' + (signal.loading ? ' calc' : '')}>SL/TP auto · Short ${_px(shortExit && shortExit.stopLoss)}/${_px(shortExit && shortExit.takeProfit)}</div>
+      <div className="signal-meta mono">
+        {signal.loading
+          ? `กำลังคำนวณ ${timeframe || signal.timeframe || '4h'} ใหม่…`
+          : `Updated ${_fmtClockTime(signal.updatedAt)} · Next ${_fmtCountdown((signal.nextRefreshAt || 0) - now)}`}
+      </div>
 
       <div className="signal-action">
+        <div className="signal-askai">
+          <button className="btn ask-ai-btn" type="button" onClick={() => onAskAI && onAskAI()} disabled={ds.busy}>
+            <img className="ask-ai-icon" src="assets/ask-ai-whale.png" alt="" />
+            {ds.busy ? 'Asking AI…' : 'Ask AI'}
+          </button>
+          {dsResult && !ds.busy &&
+            <button className="ask-ai-view mono" type="button" onClick={() => onOpenDeepseekLog && onOpenDeepseekLog()}>Log ›</button>}
+        </div>
+        {ds.error
+          ? <div className="ask-ai-note mono down">DeepSeek error</div>
+          : dsReview
+            ? <div className="ask-ai-note mono">DeepSeek: <strong className={dsCls}>{dsSig || '—'}</strong> · score {dsScore ?? '—'} · 4 TF</div>
+            : null}
+
         {auto && hot && <div className="mono muted" style={{ fontSize: 13 }}>🤖 auto armed — จะยิงให้อัตโนมัติบน testnet</div>}
         <div className="signal-order">
           <label className="trade-field mono">
@@ -258,11 +286,11 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, time
           <div className="signal-btn-pair">
             <button className="btn signal-btn long" disabled={tradeBusy || !canTrade}
               onClick={() => onTrade && onTrade('LONG', parsedNotional)}>
-              {tradeBusy ? 'Sending…' : !canTrade ? 'Connect testnet' : <><span>Open long</span><span>· {parsedNotional} USDT</span></>}
+              {tradeBusy ? 'Sending…' : !canTrade ? 'Connect testnet' : 'Long'}
             </button>
             <button className="btn signal-btn short" disabled={tradeBusy || !canTrade}
               onClick={() => onTrade && onTrade('SHORT', parsedNotional)}>
-              {tradeBusy ? 'Sending…' : !canTrade ? 'Connect testnet' : <><span>Open short</span><span>· {parsedNotional} USDT</span></>}
+              {tradeBusy ? 'Sending…' : !canTrade ? 'Connect testnet' : 'Short'}
             </button>
           </div>
         </div>

@@ -40,7 +40,7 @@ function NavBtn({icon,label,id,view,setView,badge,className='',active,onClick}){
   );
 }
 
-function TopNav({view,setView,mobilePreview,setMobilePreview}){
+function TopNav({view,setView,mobilePreview,setMobilePreview,maps,mapId,setMapId}){
   return (
     <nav className="top-nav frame" aria-label="Main navigation">
       <NavBtn icon="🏠" label="Dashboard" id="dashboard" view={view} setView={setView} />
@@ -49,13 +49,50 @@ function TopNav({view,setView,mobilePreview,setMobilePreview}){
         onClick={()=>setMobilePreview && setMobilePreview(v=>!v)} />
       <NavBtn icon="📜" label="History"   id="history"   view={view} setView={setView} badge={0} />
       <NavBtn icon="⚙️" label="Settings"  id="settings"  view={view} setView={setView} />
+      <MapMenu maps={maps} mapId={mapId} setMapId={setMapId} />
     </nav>
+  );
+}
+
+// Maps picker (อยู่ในเมนูซ้ายบน) — เลือก floor map; ตอนนี้มี SAO อย่างเดียว
+function MapMenu({maps,mapId,setMapId}){
+  const [open,setOpen] = React.useState(false);
+  const list = maps || [];
+  const current = list.find(m=>m.id===mapId) || list[0];
+  React.useEffect(()=>{
+    const onDown = (e)=>{ if(!e.target.closest('.map-menu')) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return ()=>document.removeEventListener('mousedown', onDown);
+  },[]);
+  if(!current) return null;
+  return (
+    <div className="map-menu">
+      <button className="map-menu-btn" type="button" aria-haspopup="listbox" aria-expanded={open}
+        onClick={()=>setOpen(o=>!o)} title="Select map">
+        <span className="map-ico">🗺️</span>
+        <span className="map-current">{current.short || current.name}</span>
+        <span className="map-caret">{open?'▴':'▾'}</span>
+      </button>
+      {open && (
+        <ul className="map-list" role="listbox" aria-label="Maps">
+          {list.map(m=>(
+            <li key={m.id} role="option" aria-selected={m.id===mapId}
+              className={'map-opt'+(m.id===mapId?' on':'')}
+              onClick={()=>{ setMapId && setMapId(m.id); setOpen(false); }}>
+              <span className="map-opt-name">{m.name}</span>
+              {m.id===mapId && <span className="map-opt-check">✓</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
 function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,history,
                   signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade,signalTimeframe,setSignalTimeframe,
-                  mobilePreview,setMobilePreview}){
+                  mobilePreview,setMobilePreview,maps,mapId,setMapId,
+                  deepseek,onAskAI,onOpenDeepseekLog}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
   const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
@@ -81,11 +118,12 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
   const pos = currentPosition(acct ? acct.positions : null, acct ? null : history);
   return (
     <>
-    <TopNav view={view} setView={setView} mobilePreview={mobilePreview} setMobilePreview={setMobilePreview} />
+    <TopNav view={view} setView={setView} mobilePreview={mobilePreview} setMobilePreview={setMobilePreview}
+      maps={maps} mapId={mapId} setMapId={setMapId} />
     <aside className="sidebar">
       <div className="side-card frame tight">
         <div className="btc-ticker">
-          <div className="btc-icon">₿</div>
+          <div className="btc-icon"><img src="assets/btc-coin.png" alt="BTC" /></div>
           <div>
             <h1>BTCUSDT</h1>
             <div className="sub btc-sub">
@@ -136,7 +174,8 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
 
       <SignalCard signal={signal} onTrade={onTrade} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
         auto={autoTrade} canTrade={canTrade}
-        timeframe={signalTimeframe} onTimeframeChange={setSignalTimeframe} />
+        timeframe={signalTimeframe} onTimeframeChange={setSignalTimeframe}
+        deepseek={deepseek} onAskAI={onAskAI} onOpenDeepseekLog={onOpenDeepseekLog} />
 
       <div className="side-card frame tight">
         <div className="label">The Team</div>
@@ -180,4 +219,4 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
   );
 }
 
-Object.assign(window, { Sidebar, Spark, TopNav });
+Object.assign(window, { Sidebar, Spark, TopNav, MapMenu });

@@ -5,21 +5,30 @@ const START_BAL = 12480;
 const WALK_SPEED = 12;
 const PARTY_STANDING_STILL = true;
 
-// agent start positions (spread around the floor) — % of room
+// agent start positions — seated at the office desks/chairs (% of room, point = feet)
 const STARTS = [
-  {x:47,y:WALK_LINE_Y}, // Ping-CEO / Kirito — center
-  {x:55,y:WALK_LINE_Y}, // Asuna — center
-  {x:86,y:WALK_LINE_Y}, // Alice — Quest Board
-  {x:17,y:WALK_LINE_Y}, // Eugeo — Trading
-  {x:73,y:WALK_LINE_Y}, // Sinon — DeepSeek signal scorer
+  {x:48,y:90}, // Ping-CEO / Kirito — center front, facing the crystal
+  {x:22,y:80}, // Asuna — left-back desk chair
+  {x:63,y:66}, // Alice — กึ่งกลางระหว่าง Ping/Sinon และยกขึ้นสูง (กัน frame ทับ)
+  {x:12,y:87}, // Eugeo — left-front desk chair
+  {x:79,y:87}, // Sinon — right-front desk chair
+];
+
+// ขยับละเอียดเป็นพิกเซลบนจอ desktop (x=ซ้าย/ขวา, y=บน/ลง)
+const DESKTOP_NUDGE = [
+  {x:0,   y:0},    // Ping-CEO
+  {x:100, y:-45},  // Asuna — ขวา 100 / บน 50 แล้วลง 5
+  {x:0,   y:5},    // Alice — ลง 5
+  {x:0,   y:5},    // Eugeo — ลง 5
+  {x:-50, y:50},   // Sinon — ซ้าย 50 / ลง 50
 ];
 
 const MOBILE_STARTS = [
-  {x:37,y:82}, // Ping-CEO / Kirito — center-left
-  {x:63,y:82}, // Asuna — center-right
-  {x:84,y:73}, // Alice — Quest Board
-  {x:16,y:73}, // Eugeo — Trading
-  {x:50,y:93}, // Sinon — front signal scorer
+  {x:50,y:90}, // Ping-CEO / Kirito — center front carpet
+  {x:17,y:64}, // Asuna — left-back desk chair
+  {x:84,y:64}, // Alice — right-back desk chair
+  {x:17,y:83}, // Eugeo — left-front desk chair
+  {x:84,y:83}, // Sinon — right-front desk chair
 ];
 
 function DeepseekLogModal({deepseek, onClose}){
@@ -154,11 +163,14 @@ function App(){
   const [signalTimeframe,setSignalTimeframe] = useState('4h');
   const [deepseek,setDeepseek] = useState({busy:false, result:null, error:null});
   const [deepseekLogOpen,setDeepseekLogOpen] = useState(false);
+  const [mapId,setMapId] = useState(DEFAULT_MAP_ID);
+  const [voiceIdx,setVoiceIdx] = useState(()=> AGENTS.map((_,i)=> i*2)); // บทพูดปัจจุบันต่อ agent
   const [mobilePreview,setMobilePreview] = useState(false);
   const [isMobileViewport,setIsMobileViewport] = useState(
     ()=> typeof window !== 'undefined' && window.matchMedia('(max-width: 920px)').matches
   );
   const mobileLayout = mobilePreview || isMobileViewport;
+  const activeMap = getMap(mapId);
 
   // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
   const market = useBinancePrices(COINS);
@@ -191,6 +203,21 @@ function App(){
       if(mq.removeEventListener) mq.removeEventListener('change', update);
       else mq.removeListener(update);
     };
+  },[]);
+
+  // ---- voice lines: หมุนบทพูดแบบสลับตัว (ทีละตัวทุก ~2.4 วิ) ----
+  useEffect(()=>{
+    let turn = 0;
+    const id = setInterval(()=>{
+      setVoiceIdx(prev=>{
+        const n = [...prev];
+        const ai = turn % n.length;
+        n[ai] = n[ai] + 1;
+        return n;
+      });
+      turn += 1;
+    }, 2400);
+    return ()=>clearInterval(id);
   },[]);
 
   // ---- simulation loop (runs once) ----
@@ -438,35 +465,18 @@ function App(){
   const acct = account && account.status === 'connected' ? account.account : null;
   const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
   const fmtSigned2 = (n)=> (n>=0?'+':'-')+'$'+Math.abs(Number(n||0)).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  // ตัวละครพูดบทของตัวเอง (หมุนเปลี่ยนประโยคไปเรื่อยๆ) — ข้อมูลตัวเลขดูได้ที่ sidebar
   const displayAgents = agentView.map((a,i)=>{
     const mobilePos = MOBILE_STARTS[i] || a.pos;
-    const mobileBubbleOffset = [-42, 42, -18, 18, 0][i] || 0;
+    const mobileBubbleOffset = [0, 40, -40, 40, -40][i] || 0;
+    const desk = DESKTOP_NUDGE[i] || {x:0, y:0};
     const base = mobileLayout
-      ? {...a, pos:mobilePos, nudgeX:0, bubbleOffsetX:mobileBubbleOffset}
-      : a;
-    if(a.name === 'Eugeo') return {...base, nudgeX:mobileLayout ? 0 : 10, bubble:`Balance ${fmtMoney2(acct ? acct.marginBalance : balance)}`};
-    if(a.name === 'Alice') return {...base, nudgeX:mobileLayout ? 0 : -15, bubble:`Unrealized ${fmtSigned2(acct ? acct.unrealizedPnl : pnlToday)}`};
-    if(a.name === 'Asuna'){
-      // สัญญาณจริงจาก Binance klines (RSI/SMA/momentum) → LONG/SHORT + confidence
-      if(!signal) return {...base, bubble:'Reading signal…'};
-      if(signal.direction === 'WAIT') return {...base, bubble:'Analyzing…'};
-      return {...base, bubble:`${signal.sym} ${signal.direction} ${signal.confidence}%!`};
-    }
-    if(a.name === 'Sinon'){
-      if(deepseek.busy) return {...base, bubble:'Sending features...', actionBusy:true, bubbleAction:true};
-      if(deepseek.error) return {...base, bubble:'DeepSeek error', actionBusy:false, bubbleAction:true};
-      const primary = deepseek.result && deepseek.result.multi
-        ? (deepseek.result.results || []).find(r=>r.features && r.features.timeframe === '1h') || (deepseek.result.results || [])[0]
-        : deepseek.result;
-      const review = primary && (primary.review || primary.preliminary);
-      if(review){
-        const sig = review.signal || 'NO_TRADE';
-        const score = review.signal_score ?? (primary.features && primary.features.preliminary_score);
-        return {...base, bubble:`${sig} ${score}`, actionBusy:false, bubbleAction:true};
-      }
-      return {...base, bubble:'DeepSeek scorer', actionBusy:false, bubbleAction:true};
-    }
-    return base;
+      ? {...a, pos:mobilePos, nudgeX:0, nudgeY:0, bubbleOffsetX:mobileBubbleOffset}
+      : {...a, nudgeX:desk.x, nudgeY:desk.y};
+    const voiceKey = a.voice || (AGENTS[i] && AGENTS[i].voice);
+    const lines = (voiceKey && VOICE_SCRIPTS[voiceKey]) || null;
+    const bubble = lines && lines.length ? lines[voiceIdx[i] % lines.length] : (a.bubble || a.standingBubble);
+    return {...base, bubble, bubbleAction:false, actionBusy:false};
   });
 
   return (
@@ -474,7 +484,7 @@ function App(){
       <div className="main">
         {view==='dashboard' &&
           <Room agents={deepseekLogOpen ? [] : displayAgents} busySet={busySet} onStationClick={onStationClick}
-            tint={settings.tint} showLabels={settings.labels} showNames={settings.names} compact={mobileLayout}
+            tint={settings.tint} showLabels={settings.labels} showNames={settings.names} compact={mobileLayout} map={activeMap}
             onAgentAction={(agent)=>{ if(agent.name === 'Sinon') sendDeepseekSignal(); }}
             onAgentBubble={(agent)=>{ if(agent.name === 'Sinon') setDeepseekLogOpen(true); }} />}
         {view==='analysis' && <Analysis analyses={analyses} activeAnalysisId={activeAnalysisId}
@@ -491,7 +501,9 @@ function App(){
         signal={signal} onTrade={placeTestnetOrder} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
         autoTrade={settings.autoTrade} canTrade={account.status==='connected'}
         signalTimeframe={signalTimeframe} setSignalTimeframe={setSignalTimeframe}
-        mobilePreview={mobilePreview} setMobilePreview={setMobilePreview} />
+        mobilePreview={mobilePreview} setMobilePreview={setMobilePreview}
+        maps={MAPS} mapId={mapId} setMapId={setMapId}
+        deepseek={deepseek} onAskAI={sendDeepseekSignal} onOpenDeepseekLog={()=>setDeepseekLogOpen(true)} />
       {deepseekLogOpen && <DeepseekLogModal deepseek={deepseek} onClose={()=>setDeepseekLogOpen(false)} />}
     </div>
   );

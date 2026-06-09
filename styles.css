@@ -111,10 +111,9 @@ img{image-rendering:pixelated}
 .btc-ticker{display:flex;align-items:center;gap:12px;min-width:0}
 .btc-icon{
   width:48px;height:48px;flex:0 0 48px;display:flex;align-items:center;justify-content:center;
-  font-family:'VT323';font-size:42px;line-height:1;color:#fff2d4;
-  background:#f7931a;border:var(--px) solid #6b3b00;
-  box-shadow:inset 0 0 0 3px rgba(255,255,255,.22),0 3px 0 rgba(0,0,0,.35)
 }
+.btc-icon img{width:100%;height:100%;object-fit:contain;image-rendering:pixelated;
+  filter:drop-shadow(0 2px 0 rgba(0,0,0,.35))}
 .btc-ticker h1{font-size:18px;line-height:1;color:var(--gold);letter-spacing:.5px}
 .btc-sub{display:flex;align-items:baseline;gap:8px;font-family:'VT323';font-size:24px;line-height:1;color:var(--ink);white-space:nowrap}
 .btc-sub em{font-style:normal;font-size:17px}
@@ -148,6 +147,50 @@ img{image-rendering:pixelated}
 .nav-btn .ico{width:auto;text-align:center;font-size:21px;line-height:1}
 .nav-btn .badge{position:absolute;right:-4px;top:-5px;font-family:'VT323';font-size:14px;background:var(--gold);
   color:var(--wood-darkest);padding:0 5px;border:2px solid var(--gold-dark)}
+
+/* maps picker (lives inside the top-left nav) */
+.map-menu{position:relative;display:flex}
+.map-menu-btn{display:flex;align-items:center;gap:7px;cursor:pointer;height:42px;padding:0 12px;
+  font-family:'Pixelify Sans';font-size:16px;color:var(--ink);
+  background:var(--parch-2);border:var(--px) solid var(--wood-dark);
+  box-shadow:inset 0 0 0 2px var(--parch);user-select:none;transition:transform .05s}
+.map-menu-btn:hover{background:var(--parch-3)}
+.map-menu-btn:active{transform:translateY(2px)}
+.map-menu-btn .map-ico{font-size:18px;line-height:1}
+.map-menu-btn .map-current{letter-spacing:1px;white-space:nowrap}
+.map-menu-btn .map-caret{font-size:12px;color:var(--ink-soft)}
+.map-list{position:absolute;left:0;top:calc(100% + 8px);margin:0;padding:6px;list-style:none;
+  z-index:32;min-width:220px;background:rgba(38,48,58,.98);border:var(--px) solid var(--wood-dark);
+  box-shadow:0 8px 0 rgba(0,0,0,.45)}
+.map-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;
+  padding:9px 11px;font-family:'Pixelify Sans';font-size:15px;color:var(--ink);
+  background:var(--parch-2);border:2px solid var(--wood-dark);margin-bottom:5px}
+.map-opt:last-child{margin-bottom:0}
+.map-opt:hover{background:var(--parch-3)}
+.map-opt.on{background:var(--green);color:#06120e;box-shadow:inset 0 0 0 2px #65e3ff}
+.map-opt-check{font-family:'VT323';font-size:18px}
+
+/* description กำลังคำนวณใหม่ตอนเปลี่ยน timeframe */
+.signal-meta.calc{opacity:.45}
+
+/* Ask AI feature (inside Live Signal, above USDT input) */
+.signal-askai{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.ask-ai .ask-ai-row{display:flex;align-items:center;gap:10px}
+.ask-ai-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+  font-family:'Pixelify Sans';font-size:17px;color:#07131a;cursor:pointer;
+  padding:9px 12px;background:var(--screen);border:var(--px) solid var(--wood-darkest);
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.4),0 3px 0 rgba(0,0,0,.35)}
+.ask-ai-btn:hover{filter:brightness(1.08)}
+.ask-ai-btn:active{transform:translateY(2px)}
+.ask-ai-btn:disabled{opacity:.7;cursor:not-allowed}
+.ask-ai-icon{height:22px;width:auto;image-rendering:pixelated;vertical-align:middle}
+.ask-ai-view{font-size:15px;color:#65e3ff;background:none;border:0;cursor:pointer;white-space:nowrap;padding:4px}
+.ask-ai-view:hover{text-decoration:underline}
+.ask-ai-note{margin-top:8px;font-size:15px;color:var(--ink-soft);line-height:1.2}
+.ask-ai-note.muted{opacity:.8}
+.ask-ai-note .up{color:var(--green-dark)}
+.ask-ai-note .down{color:var(--red)}
+.ask-ai-note.down{color:var(--red)}
 
 /* section label */
 .label{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--ink-soft);
@@ -246,16 +289,30 @@ td .who, .notif .who{font-family:'VT323';font-weight:400}
   padding:8px;overflow:hidden;
 }
 .room{
-  position:relative;width:100%;aspect-ratio:1536/1024;max-height:100%;
+  position:relative;width:100%;aspect-ratio:1672/941;max-height:100%;
   background-size:cover;background-position:center;
   image-rendering:pixelated;
   border:var(--px) solid var(--wood-darkest);
   box-shadow:0 0 0 4px var(--frame),0 0 0 8px var(--wood-darkest),0 10px 0 rgba(0,0,0,.55);
 }
+/* portrait map (mobile) — tall artwork; width fills the stage, cover crops vertically */
+.room.portrait{aspect-ratio:941/1672}
 .room.day-tint::after{content:'';position:absolute;inset:0;pointer-events:none;
   background:
     radial-gradient(90% 70% at 45% 12%,rgba(231,181,60,.08),transparent 36%),
     radial-gradient(120% 90% at 60% 10%,transparent 42%,rgba(4,8,16,.12) 100%)}
+
+/* Crypto Fear & Greed Index — มุมขวาบนของ room */
+.fng-widget{
+  position:absolute;top:12px;right:12px;z-index:9;width:128px;
+  padding:8px 10px 6px;background:rgba(12,18,26,.82);backdrop-filter:blur(2px);
+  display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none}
+.fng-title{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-soft);white-space:nowrap}
+.fng-gauge{width:108px;height:62px;display:block}
+.fng-score{font-family:'Pixelify Sans';font-size:26px;font-weight:700}
+.fng-class{font-family:'VT323';font-size:18px;line-height:1;text-align:center;white-space:nowrap}
+.compact-agents .fng-widget{width:108px;top:8px;right:8px;padding:6px 8px 4px}
+.compact-agents .fng-gauge{width:92px;height:54px}
 
 /* station hotspot */
 .station{position:absolute;transform:translate(-50%,-50%);cursor:pointer;z-index:5}
@@ -307,7 +364,8 @@ td .who, .notif .who{font-family:'VT323';font-weight:400}
 @keyframes bob{50%{transform:translateY(-3px)}}
 .agent .bubble{
   position:absolute;bottom:108%;left:50%;transform:translateX(calc(-50% + var(--bubble-x,0px)));
-  font-family:'VT323';font-size:16px;white-space:nowrap;color:var(--ink);
+  font-family:'VT323';font-size:14px;color:var(--ink);
+  white-space:normal;max-width:212px;text-align:center;line-height:1.15;
   background:#1b2530;border:3px solid var(--wood-light);padding:3px 9px;
   box-shadow:0 3px 0 rgba(0,0,0,.3);animation:pop .2s ease-out;
   pointer-events:none;

@@ -30,6 +30,14 @@ const COINS = [
   { sym:'SOL', icon:'◎', pair:'SOLUSDT', stream:'solusdt' },
 ];
 const TICKERS = COINS.map(c=>c.sym);
+
+// แผนที่ floor — แต่ละ map มี background แยก desktop/mobile (ตอนนี้มี SAO อย่างเดียว)
+const MAPS = [
+  { id:'sao', name:'Sword Art Online (SAO)', short:'SAO',
+    desktop:'assets/sao-office.png', mobile:'assets/sao-office-mobile.png' },
+];
+const DEFAULT_MAP_ID = MAPS[0].id;
+const getMap = (id)=> MAPS.find(m=>m.id===id) || MAPS[0];
 // ราคา fallback ถ้า WebSocket ยังไม่ส่ง tick แรก (ใกล้เคียงราคาตลาดจริง)
 const FALLBACK_PX = { BTC:69000, ETH:1975, BNB:680, SOL:80, XRP:1.26, ADA:0.22, DOGE:0.099, AVAX:8.7, LINK:8.8, TON:2.0 };
 const livePrice = (sym)=> ((typeof window!=='undefined' && window.__livePrices && window.__livePrices[sym]) || FALLBACK_PX[sym] || 1);
@@ -100,4 +108,4 @@ function out(ic, text, st, taskInc, bubble){
   return { bubble:bubble+'…', balanceDelta:0, pnlDelta:0, taskInc, notif:{ic,text,kind:'plain'} };
 }
 
-Object.assign(window, { STATIONS, WALK_LINE_Y, COINS, TICKERS, generateOutcome, fmtMoney, fmtSigned, fmtClock, fmtPx, fmtQty, livePrice, rnd, irnd, pick });
+Object.assign(window, { STATIONS, WALK_LINE_Y, COINS, TICKERS, MAPS, DEFAULT_MAP_ID, getMap, generateOutcome, fmtMoney, fmtSigned, fmtClock, fmtPx, fmtQty, livePrice, rnd, irnd, pick });
