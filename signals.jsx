@@ -6,6 +6,13 @@
  */
 
 function _sma(arr, n) { const s = arr.slice(-n); return s.reduce((a, b) => a + b, 0) / s.length; }
+function _ema(arr, n) {
+  if (!arr || arr.length < n) return null;
+  const k = 2 / (n + 1);
+  let ema = _sma(arr.slice(0, n), n);
+  for (let i = n; i < arr.length; i++) ema = arr[i] * k + ema * (1 - k);
+  return ema;
+}
 function _rsi(closes, period) {
   period = period || 14;
   if (closes.length < period + 1) return 50;
@@ -19,6 +26,33 @@ function _rsi(closes, period) {
   return 100 - 100 / (1 + avgG / avgL);
 }
 
+const SIGNAL_TIMEFRAMES = [
+  { value:'1h', label:'1h', binance:'1h', oiPeriod:'1h' },
+  { value:'4h', label:'4h', binance:'4h', oiPeriod:'4h' },
+  { value:'1d', label:'1d', binance:'1d', oiPeriod:'1d' },
+  { value:'1week', label:'1week', binance:'1w', oiPeriod:'1d' },
+];
+
+function _timeframeConfig(value) {
+  return SIGNAL_TIMEFRAMES.find(t => t.value === value) || SIGNAL_TIMEFRAMES[0];
+}
+
+function _fmtClockTime(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function _fmtCountdown(ms) {
+  const total = Math.max(0, Math.ceil((ms || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function _parseKline(k) {
+  return { high:parseFloat(k[2]), low:parseFloat(k[3]), close:parseFloat(k[4]) };
+}
+
 function _pctMove(closes, n) {
   if (closes.length <= n) return 0;
   const last = closes[closes.length - 1];
@@ -26,82 +60,123 @@ function _pctMove(closes, n) {
   return prev ? (last - prev) / prev * 100 : 0;
 }
 
-// รวม indicator → สัญญาณ + confidence จาก timeframe 1HR
-function computeSignal(sym, closes, chg24h) {
-  closes = (closes || []).filter((n) => Number.isFinite(n));
-  if (closes.length < 55) {
-    return { sym, price: closes[closes.length - 1] || 0, direction: 'WAIT', confidence: 0, timeframe: '1HR', rsi: 50, bull: 0, bear: 0, score: 0, reasons: ['ข้อมูล 1HR ไม่พอ'], updatedAt: Date.now() };
+function _zscore(values) {
+  const xs = (values || []).map(Number).filter(Number.isFinite);
+  if (xs.length < 5) return 0;
+  const last = xs[xs.length - 1];
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const variance = xs.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / xs.length;
+  const sd = Math.sqrt(variance);
+  return sd ? (last - mean) / sd : 0;
+}
+
+function _atr(klines, period) {
+  if (!klines || klines.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < klines.length; i++) {
+    const high = klines[i].high, low = klines[i].low, prevClose = klines[i - 1].close;
+    trs.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+  }
+  return _sma(trs, period);
+}
+
+function _donchian(klines, period) {
+  if (!klines || klines.length < period + 1) return { high:null, low:null };
+  const window = klines.slice(-(period + 1), -1);
+  return {
+    high: Math.max(...window.map(k => k.high)),
+    low: Math.min(...window.map(k => k.low)),
+  };
+}
+
+function _marketMeta(oiHist, fundingHist) {
+  const oiValues = Array.isArray(oiHist) ? oiHist.map(x => parseFloat(x.sumOpenInterestValue || x.sumOpenInterest)) : [];
+  const fundingValues = Array.isArray(fundingHist) ? fundingHist.map(x => parseFloat(x.fundingRate)) : [];
+  return {
+    oiZ: _zscore(oiValues),
+    fundingZ: _zscore(fundingValues),
+    hasOi: oiValues.length >= 5,
+    hasFunding: fundingValues.length >= 5,
+  };
+}
+
+// สูตร non-ML: EMA trend + Donchian breakout + RSI + OI/funding filters.
+function computeSignal(sym, klines, marketMeta, timeframe) {
+  const tf = timeframe || '4h';
+  klines = (klines || []).filter(k => k && Number.isFinite(k.close) && Number.isFinite(k.high) && Number.isFinite(k.low));
+  const closes = klines.map(k => k.close);
+  if (closes.length < 201) {
+    return { sym, price: closes[closes.length - 1] || 0, direction: 'WAIT', confidence: 0, timeframe: tf, rsi: 50, score: 0, atr: 0, stopDistance: 0, oiZ: 0, fundingZ: 0, updatedAt: Date.now() };
   }
   const price = closes[closes.length - 1];
   const r = _rsi(closes, 14);
-  const s20 = _sma(closes, 20), s50 = _sma(closes, 50);
-  const m1 = _pctMove(closes, 1);
-  const m4 = _pctMove(closes, 4);
-  const m12 = _pctMove(closes, 12);
-  const s20Prev = _sma(closes.slice(0, -6), 20);
-  const trendSlope = s20Prev ? (s20 - s20Prev) / s20Prev * 100 : 0;
-  const reasons = [];
-  let bull = 0, bear = 0;
-  // เทรนด์ (price vs SMA20/50)
-  if (price > s20 && s20 > s50) { bull += 2; reasons.push('1HR trend up'); }
-  else if (price < s20 && s20 < s50) { bear += 2; reasons.push('1HR trend down'); }
-  else if (price > s20) { bull += 1; reasons.push('price > SMA20'); }
-  else { bear += 1; reasons.push('price < SMA20'); }
-  if (trendSlope > 0.15) { bull += 0.75; reasons.push('SMA20 rising'); }
-  else if (trendSlope < -0.15) { bear += 0.75; reasons.push('SMA20 falling'); }
-  // RSI
-  if (r < 30) { bull += 1.5; reasons.push('RSI oversold'); }
-  else if (r > 70) { bear += 1.5; reasons.push('RSI overbought'); }
-  else if (r >= 55) { bull += 0.5; reasons.push('RSI bullish'); }
-  else if (r <= 45) { bear += 0.5; reasons.push('RSI bearish'); }
-  // โมเมนตัมจากแท่ง 1HR ล่าสุด ไม่ใช้ค่าคงที่
-  [
-    [m1, 0.35, '1H'],
-    [m4, 0.9, '4H'],
-    [m12, 1.8, '12H'],
-  ].forEach(([move, threshold, label]) => {
-    if (move > threshold) { bull += 0.75; reasons.push(label + ' +' + move.toFixed(2) + '%'); }
-    else if (move < -threshold) { bear += 0.75; reasons.push(label + ' ' + move.toFixed(2) + '%'); }
-  });
-  // 24h เป็น context เสริม น้ำหนักต่ำกว่า 1HR
-  if (chg24h > 3) { bull += 0.5; reasons.push('24h +' + chg24h.toFixed(1) + '%'); }
-  else if (chg24h < -3) { bear += 0.5; reasons.push('24h ' + chg24h.toFixed(1) + '%'); }
-
-  const net = bull - bear;
-  const direction = net >= 0 ? 'LONG' : 'SHORT';
-  const confidence = Math.round(50 + Math.min(1, Math.abs(net) / 5.25) * 45); // 50..95
+  const ema50 = _ema(closes, 50), ema200 = _ema(closes, 200);
+  const dc = _donchian(klines, 55);
+  const atr = _atr(klines, 14) || 0;
+  const oiZ = marketMeta && Number.isFinite(marketMeta.oiZ) ? marketMeta.oiZ : 0;
+  const fundingZ = marketMeta && Number.isFinite(marketMeta.fundingZ) ? marketMeta.fundingZ : 0;
+  const metaOk = !!(marketMeta && marketMeta.hasOi && marketMeta.hasFunding);
+  const longChecks = [
+    price > ema200,
+    ema50 > ema200,
+    price > dc.high,
+    r > 55,
+    metaOk && oiZ > 0,
+    metaOk && fundingZ < 1.5,
+  ];
+  const shortChecks = [
+    price < ema200,
+    ema50 < ema200,
+    price < dc.low,
+    r < 45,
+    metaOk && oiZ > 0,
+    metaOk && fundingZ > -1.5,
+  ];
+  const longOk = longChecks.every(Boolean);
+  const shortOk = shortChecks.every(Boolean);
+  const direction = longOk ? 'LONG' : shortOk ? 'SHORT' : 'WAIT';
+  const longScore = longChecks.filter(Boolean).length / longChecks.length;
+  const shortScore = shortChecks.filter(Boolean).length / shortChecks.length;
+  const score = longOk ? longScore : shortOk ? -shortScore : (longScore >= shortScore ? longScore : -shortScore);
+  const confidence = direction === 'WAIT'
+    ? Math.round(Math.max(longScore, shortScore) * 65)
+    : Math.round(80 + Math.min(1, Math.abs(score)) * 15);
   return {
-    sym, price, direction, confidence, rsi: Math.round(r), sma20: s20, sma50: s50,
-    chg24h, m1, m4, m12, bull: Number(bull.toFixed(2)), bear: Number(bear.toFixed(2)),
-    score: Number(net.toFixed(2)), timeframe: '1HR', reasons: reasons.slice(0, 4), updatedAt: Date.now()
+    sym, price, direction, confidence, timeframe: tf,
+    rsi: Math.round(r), ema50, ema200, donchianHigh: dc.high, donchianLow: dc.low,
+    atr, stopDistance: atr * 3, oiZ, fundingZ, score: Number(score.toFixed(2)), updatedAt: Date.now()
   };
 }
 
 // hook: ดึง klines จริง + 24h ticker ทุก refreshMs แล้วคำนวณสัญญาณ
-function useSignal(sym, refreshMs) {
+function useSignal(sym, refreshMs, timeframe) {
   const [sig, setSig] = React.useState(null);
   React.useEffect(() => {
     let alive = true;
     const pair = sym.endsWith('USDT') ? sym : sym + 'USDT';
+    const refresh = refreshMs || 20000;
+    const tf = _timeframeConfig(timeframe);
     const load = async () => {
       try {
-        const [kRes, tRes] = await Promise.all([
-          fetch('https://api.binance.com/api/v3/klines?symbol=' + pair + '&interval=1h&limit=100', { cache: 'no-store' }),
-          fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=' + pair, { cache: 'no-store' }),
+        const [kRes, oiRes, fRes] = await Promise.all([
+          fetch('https://fapi.binance.com/fapi/v1/klines?symbol=' + pair + '&interval=' + tf.binance + '&limit=260', { cache: 'no-store' }),
+          fetch('https://fapi.binance.com/futures/data/openInterestHist?symbol=' + pair + '&period=' + tf.oiPeriod + '&limit=60', { cache: 'no-store' }),
+          fetch('https://fapi.binance.com/fapi/v1/fundingRate?symbol=' + pair + '&limit=100', { cache: 'no-store' }),
         ]);
         const klines = await kRes.json();
-        const t = await tRes.json();
+        const oi = oiRes.ok ? await oiRes.json() : [];
+        const funding = fRes.ok ? await fRes.json() : [];
         if (!alive) return;
-        const closes = Array.isArray(klines) ? klines.map((k) => parseFloat(k[4])) : [];
-        setSig(computeSignal(sym.replace('USDT', ''), closes, parseFloat(t.priceChangePercent)));
+        const rows = Array.isArray(klines) ? klines.map(_parseKline) : [];
+        setSig({...computeSignal(sym.replace('USDT', ''), rows, _marketMeta(oi, funding), tf.label), nextRefreshAt: Date.now() + refresh});
       } catch (e) {
-        setSig((prev) => prev ? { ...prev, error: String(e.message || e), stale: true } : null);
+        setSig((prev) => prev ? { ...prev, error: String(e.message || e), stale: true, nextRefreshAt: Date.now() + refresh } : null);
       }
     };
     load();
-    const id = setInterval(load, refreshMs || 20000);
+    const id = setInterval(load, refresh);
     return () => { alive = false; clearInterval(id); };
-  }, [sym, refreshMs]);
+  }, [sym, refreshMs, timeframe]);
   return sig;
 }
 
@@ -112,20 +187,42 @@ function _px(p) {
   return p.toLocaleString('en-US', { maximumFractionDigits: 5 });
 }
 
-function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade }) {
+function _exitPlan(signal, direction) {
+  const price = signal && Number(signal.price);
+  const stopDistance = signal && Number(signal.stopDistance);
+  if (!(price > 0) || !(stopDistance > 0)) return null;
+  return direction === 'LONG'
+    ? { stopLoss: price - stopDistance, takeProfit: price + stopDistance * 2 }
+    : { stopLoss: price + stopDistance, takeProfit: price - stopDistance * 2 };
+}
+
+function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, timeframe, onTimeframeChange }) {
   const [notional, setNotional] = React.useState(150);
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
   if (!signal) {
     return (
       <div className="side-card frame tight signal-card">
         <div className="label">⚡ Live Signal</div>
+        <div className="signal-frame-row">
+          <span className="mono muted">Timeframe</span>
+          <select className="signal-frame-select" value={timeframe || '4h'} onChange={(e)=>onTimeframeChange && onTimeframeChange(e.target.value)}>
+            {SIGNAL_TIMEFRAMES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
         <div className="mono muted market-msg">วิเคราะห์ราคาจริงจาก Binance…</div>
       </div>
     );
   }
   const hot = signal.confidence >= 80;
   const dir = signal.direction;
-  const dirClass = dir === 'LONG' ? 'long' : 'short';
+  const dirClass = dir === 'LONG' ? 'long' : dir === 'SHORT' ? 'short' : 'wait';
   const parsedNotional = Math.max(10, Math.min(1000, Number(notional) || 0));
+  const longExit = _exitPlan(signal, 'LONG');
+  const shortExit = _exitPlan(signal, 'SHORT');
   return (
     <div className={'side-card frame tight signal-card' + (hot ? ' hot' : '')}>
       <div className="label market-head">
@@ -133,12 +230,22 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade }) {
         {auto && <span className="market-status mono"><span className="status-dot" style={{ background: 'var(--up)' }}></span>auto</span>}
       </div>
 
+      <div className="signal-frame-row">
+        <span className="mono muted">Timeframe</span>
+        <select className="signal-frame-select" value={timeframe || '4h'} onChange={(e)=>onTimeframeChange && onTimeframeChange(e.target.value)}>
+          {SIGNAL_TIMEFRAMES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
       <div className="signal-top">
         <span className={'thesis-badge ' + dirClass}>{dir}</span>
         <span className="signal-conf mono">{signal.confidence}%</span>
       </div>
       <div className="signal-bar"><div className={'signal-fill ' + dirClass} style={{ width: signal.confidence + '%' }}></div></div>
-      <div className="signal-meta mono">{signal.timeframe || '1HR'} · ${_px(signal.price)}</div>
+      <div className="signal-meta mono">{signal.timeframe || '4h'} · ${_px(signal.price)}</div>
+      <div className="signal-meta mono">3ATR stop · ${_px(signal.stopDistance)}</div>
+      <div className="signal-meta mono">SL/TP auto · Long ${_px(longExit && longExit.stopLoss)}/${_px(longExit && longExit.takeProfit)}</div>
+      <div className="signal-meta mono">SL/TP auto · Short ${_px(shortExit && shortExit.stopLoss)}/${_px(shortExit && shortExit.takeProfit)}</div>
+      <div className="signal-meta mono">Updated {_fmtClockTime(signal.updatedAt)} · Next {_fmtCountdown((signal.nextRefreshAt || 0) - now)}</div>
 
       <div className="signal-action">
         {auto && hot && <div className="mono muted" style={{ fontSize: 13 }}>🤖 auto armed — จะยิงให้อัตโนมัติบน testnet</div>}
@@ -162,9 +269,10 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade }) {
       </div>
       {tradeMsg && <div className={'signal-msg mono ' + (tradeMsg.ok ? 'up' : 'down')}>
         <div>{tradeMsg.text}</div>
+        {tradeMsg.note && <div>{tradeMsg.note}</div>}
       </div>}
     </div>
   );
 }
 
-Object.assign(window, { useSignal, computeSignal, SignalCard });
+Object.assign(window, { useSignal, computeSignal, SignalCard, SIGNAL_TIMEFRAMES });

@@ -51,7 +51,7 @@ function TopNav({view,setView}){
 }
 
 function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,history,
-                  signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade}){
+                  signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade,signalTimeframe,setSignalTimeframe}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
   const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
@@ -129,7 +129,8 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
       </div>
 
       <SignalCard signal={signal} onTrade={onTrade} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
-        auto={autoTrade} canTrade={canTrade} />
+        auto={autoTrade} canTrade={canTrade}
+        timeframe={signalTimeframe} onTimeframeChange={setSignalTimeframe} />
 
       <MarketPrices market={market} />
 

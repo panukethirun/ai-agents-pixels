@@ -23,17 +23,21 @@ const TESTNET = 'https://testnet.binancefuture.com';
 
 // ---- โหลดคีย์ (server-side เท่านั้น) ----
 function loadKeys() {
-  let apiKey = '', apiSecret = '';
+  let apiKey = '', apiSecret = '', deepseekApiKey = '';
   try {
     const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'binance.config.json'), 'utf8'));
-    apiKey = j.apiKey || ''; apiSecret = j.apiSecret || '';
+    apiKey = j.apiKey || '';
+    apiSecret = j.apiSecret || '';
+    deepseekApiKey = j.DEEPSEEK_API_KEY || j.deepseekApiKey || '';
   } catch (e) { /* ไม่มีไฟล์ก็ไม่เป็นไร */ }
   apiKey = process.env.BINANCE_TESTNET_KEY || apiKey;
   apiSecret = process.env.BINANCE_TESTNET_SECRET || apiSecret;
-  return { apiKey, apiSecret };
+  deepseekApiKey = process.env.DEEPSEEK_API_KEY || deepseekApiKey;
+  return { apiKey, apiSecret, deepseekApiKey };
 }
 const isPlaceholder = (s) => !s || /PUT_YOUR/.test(s);
 const isConfigured = (k) => !isPlaceholder(k.apiKey) && !isPlaceholder(k.apiSecret);
+const isDeepseekConfigured = (k) => !isPlaceholder(k.deepseekApiKey);
 
 // ---- ดิบ HTTP GET คืน JSON ----
 function httpsGetJSON(url, headers) {
@@ -45,6 +49,24 @@ function httpsGetJSON(url, headers) {
     });
     req.on('error', reject);
     req.setTimeout(8000, () => req.destroy(new Error('timeout')));
+    req.end();
+  });
+}
+
+function httpsPostJSON(url, headers, payload) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload || {});
+    const req = https.request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...(headers || {}) },
+    }, (res) => {
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => { let d; try { d = JSON.parse(raw); } catch (e) { d = raw; } resolve({ status: res.statusCode, data: d }); });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => req.destroy(new Error('timeout')));
+    req.write(body);
     req.end();
   });
 }
@@ -110,6 +132,225 @@ function roundStep(value, step) {
   return Math.floor(value / step) * step;
 }
 
+function roundPrice(value) {
+  return Number(value).toFixed(2);
+}
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function sma(values, n) {
+  const xs = values.slice(-n);
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function ema(values, n) {
+  if (!values || values.length < n) return 0;
+  const k = 2 / (n + 1);
+  let out = sma(values.slice(0, n), n);
+  for (let i = n; i < values.length; i++) out = values[i] * k + out * (1 - k);
+  return out;
+}
+
+function rsi(values, period) {
+  if (!values || values.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = values.length - period; i < values.length; i++) {
+    const ch = values[i] - values[i - 1];
+    if (ch >= 0) gains += ch; else losses -= ch;
+  }
+  const avgG = gains / period, avgL = losses / period;
+  return avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+}
+
+function zscore(values) {
+  const xs = (values || []).map(Number).filter(Number.isFinite);
+  if (xs.length < 5) return 0;
+  const last = xs[xs.length - 1];
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const variance = xs.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / xs.length;
+  const sd = Math.sqrt(variance);
+  return sd ? (last - mean) / sd : 0;
+}
+
+function atr(klines, period) {
+  if (!klines || klines.length < period + 1) return 0;
+  const trs = [];
+  for (let i = 1; i < klines.length; i++) {
+    const prevClose = klines[i - 1].close;
+    trs.push(Math.max(klines[i].high - klines[i].low, Math.abs(klines[i].high - prevClose), Math.abs(klines[i].low - prevClose)));
+  }
+  return sma(trs, period);
+}
+
+function pct(now, prev) {
+  return prev ? (now - prev) / prev * 100 : 0;
+}
+
+function macdHistogram(closes) {
+  const fast = ema(closes, 12), slow = ema(closes, 26);
+  const macdSeries = [];
+  for (let i = 26; i <= closes.length; i++) macdSeries.push(ema(closes.slice(0, i), 12) - ema(closes.slice(0, i), 26));
+  return fast - slow - ema(macdSeries, 9);
+}
+
+function mapSignal(score) {
+  if (score >= 70) return 'STRONG_LONG';
+  if (score >= 40) return 'WEAK_LONG';
+  if (score <= -70) return 'STRONG_SHORT';
+  if (score <= -40) return 'WEAK_SHORT';
+  return 'NO_TRADE';
+}
+
+function scoreDeepseekFeatures(f) {
+  let trendScore = 0;
+  if (f.price > f.ema50 && f.ema50 > f.ema200) trendScore = 30;
+  else if (f.price < f.ema50 && f.ema50 < f.ema200) trendScore = -30;
+  else if (f.price > f.ema200) trendScore = 10;
+  else if (f.price < f.ema200) trendScore = -10;
+
+  let momentumScore = 0;
+  if (f.rsi14 >= 55 && f.rsi14 <= 70) momentumScore += 10;
+  else if (f.rsi14 >= 30 && f.rsi14 <= 45) momentumScore -= 10;
+  if (f.macd_histogram > 0) momentumScore += 7;
+  else if (f.macd_histogram < 0) momentumScore -= 7;
+  momentumScore += f.last_24h_return_pct > 0 ? 4 : -4;
+  momentumScore += f.last_72h_return_pct > 0 ? 4 : -4;
+
+  let derivativesScore = 0;
+  if (f.price_change_1h_pct > 0 && f.open_interest_change_1h_pct > 0) derivativesScore += 20;
+  if (f.price_change_1h_pct < 0 && f.open_interest_change_1h_pct > 0) derivativesScore -= 20;
+  if (f.price_change_1h_pct > 0 && f.open_interest_change_1h_pct < 0) derivativesScore += 5;
+  if (f.price_change_1h_pct < 0 && f.open_interest_change_1h_pct < 0) derivativesScore -= 5;
+
+  let fundingPenalty = 0;
+  if (f.funding_zscore_90 > 2) fundingPenalty -= 15;
+  if (f.funding_zscore_90 < -2) fundingPenalty += 15;
+
+  let riskScore = 0;
+  if (f.atr_pct > 3) riskScore -= 15;
+  else if (f.atr_pct > 2) riskScore -= 8;
+  else if (f.atr_pct < 0.4) riskScore -= 5;
+  else riskScore += 5;
+
+  const raw = trendScore + momentumScore + derivativesScore + fundingPenalty + riskScore;
+  const preliminaryScore = clamp(raw, -100, 100);
+  return {
+    trend_score: trendScore,
+    momentum_score: momentumScore,
+    derivatives_score: derivativesScore,
+    funding_penalty: fundingPenalty,
+    risk_score: riskScore,
+    preliminary_score: preliminaryScore,
+    preliminary_signal: mapSignal(preliminaryScore),
+  };
+}
+
+async function buildDeepseekFeatures() {
+  const base = 'https://fapi.binance.com';
+  const symbol = 'BTCUSDT';
+  const [kRes, oiRes, fRes, premiumRes] = await Promise.all([
+    httpsGetJSON(`${base}/fapi/v1/klines?symbol=${symbol}&interval=1h&limit=260`),
+    httpsGetJSON(`${base}/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=90`),
+    httpsGetJSON(`${base}/fapi/v1/fundingRate?symbol=${symbol}&limit=100`),
+    httpsGetJSON(`${base}/fapi/v1/premiumIndex?symbol=${symbol}`),
+  ]);
+  if (kRes.status !== 200 || !Array.isArray(kRes.data)) throw new Error('binance klines unavailable');
+  const klines = kRes.data.map((k) => ({
+    high: parseFloat(k[2]),
+    low: parseFloat(k[3]),
+    close: parseFloat(k[4]),
+    volume: parseFloat(k[5]),
+  })).filter((k) => Number.isFinite(k.close));
+  if (klines.length < 201) throw new Error('not enough klines for DeepSeek features');
+  const closes = klines.map((k) => k.close);
+  const volumes = klines.map((k) => k.volume);
+  const price = closes[closes.length - 1];
+  const atr14 = atr(klines, 14);
+  const oiRows = Array.isArray(oiRes.data) ? oiRes.data : [];
+  const oiValues = oiRows.map((x) => parseFloat(x.sumOpenInterestValue || x.sumOpenInterest)).filter(Number.isFinite);
+  const fundingRows = Array.isArray(fRes.data) ? fRes.data : [];
+  const fundingValues = fundingRows.map((x) => parseFloat(x.fundingRate)).filter(Number.isFinite);
+  const lastOi = oiValues[oiValues.length - 1] || 0;
+  const prevOi = oiValues[oiValues.length - 2] || lastOi;
+  const dcWindow = klines.slice(-56, -1);
+  const donchianHigh = Math.max(...dcWindow.map((k) => k.high));
+  const donchianLow = Math.min(...dcWindow.map((k) => k.low));
+  const premium = premiumRes.data || {};
+  const mark = parseFloat(premium.markPrice) || price;
+  const index = parseFloat(premium.indexPrice) || price;
+  const fundingRatePct = (parseFloat(premium.lastFundingRate) || fundingValues[fundingValues.length - 1] || 0) * 100;
+  const features = {
+    symbol: 'BTCUSDT_PERP',
+    timeframe: '1h',
+    price: Number(price.toFixed(2)),
+    price_change_1h_pct: Number(pct(price, closes[closes.length - 2]).toFixed(4)),
+    ema50: Number(ema(closes, 50).toFixed(2)),
+    ema200: Number(ema(closes, 200).toFixed(2)),
+    rsi14: Number(rsi(closes, 14).toFixed(2)),
+    macd_histogram: Number(macdHistogram(closes).toFixed(4)),
+    atr14: Number(atr14.toFixed(2)),
+    atr_pct: Number((atr14 / price * 100).toFixed(4)),
+    volume_zscore_48: Number(zscore(volumes.slice(-48)).toFixed(4)),
+    open_interest_change_1h_pct: Number(pct(lastOi, prevOi).toFixed(4)),
+    open_interest_zscore_48: Number(zscore(oiValues.slice(-48)).toFixed(4)),
+    funding_rate_pct: Number(fundingRatePct.toFixed(5)),
+    funding_zscore_90: Number(zscore(fundingValues.slice(-90)).toFixed(4)),
+    basis_pct: Number(((mark - index) / index * 100).toFixed(4)),
+    donchian_55_breakout: price > donchianHigh ? 'up' : price < donchianLow ? 'down' : 'none',
+    last_24h_return_pct: Number(pct(price, closes[closes.length - 25]).toFixed(4)),
+    last_72h_return_pct: Number(pct(price, closes[closes.length - 73]).toFixed(4)),
+    estimated_fee_roundtrip_pct: 0.08,
+    estimated_slippage_pct: 0.03,
+  };
+  return { ...features, ...scoreDeepseekFeatures(features) };
+}
+
+const DEEPSEEK_SYSTEM_PROMPT = `You are a quantitative crypto futures signal scoring engine.
+Task:
+Evaluate BTCUSDT perpetual futures directional signal using ONLY the provided numeric features.
+Do not use news, assumptions, opinions, or external knowledge.
+Do not predict exact price.
+Return strict JSON only.
+The system already calculated a preliminary score. You may adjust the final score by maximum +/- 15 points only.
+Do not reverse the signal unless risk is extreme or the data clearly contradicts the preliminary score.
+Scoring range: -100 = strongest short, 0 = no trade, +100 = strongest long.
+Signal mapping: +70 to +100 STRONG_LONG, +40 to +69 WEAK_LONG, -39 to +39 NO_TRADE, -40 to -69 WEAK_SHORT, -70 to -100 STRONG_SHORT.
+Use trend, momentum, derivatives confirmation, funding crowded penalty, volatility/risk, and cost filter.
+Return strict JSON only with keys: signal, signal_score, confidence, trend_score, momentum_score, derivatives_score, risk_score, funding_penalty, recommended_action, max_leverage, entry_condition, stop_loss_logic, take_profit_logic, invalidation, reason_short.`;
+
+function parseDeepseekJSON(content) {
+  if (!content) return null;
+  try { return JSON.parse(content); } catch (e) {}
+  const match = String(content).match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  return JSON.parse(match[0]);
+}
+
+function normalizeDeepseekReview(features, review) {
+  const out = { ...(review || {}) };
+  const prelim = Number(features && features.preliminary_score) || 0;
+  const rawScore = Number(out.signal_score);
+  out.signal_score = clamp(Number.isFinite(rawScore) ? rawScore : prelim, prelim - 15, prelim + 15);
+  out.signal_score = clamp(Math.round(out.signal_score), -100, 100);
+  const allowedSignals = new Set(['STRONG_LONG', 'WEAK_LONG', 'NO_TRADE', 'WEAK_SHORT', 'STRONG_SHORT']);
+  if (!allowedSignals.has(out.signal)) out.signal = mapSignal(out.signal_score);
+  const action = String(out.recommended_action || '').toUpperCase();
+  if (['LONG', 'BUY', 'SHORT_LONG', 'ENTERLONG'].includes(action)) out.recommended_action = 'ENTER_LONG';
+  else if (['SHORT', 'SELL', 'ENTERSHORT'].includes(action)) out.recommended_action = 'ENTER_SHORT';
+  else if (['EXITLONG', 'CLOSE_LONG'].includes(action)) out.recommended_action = 'EXIT_LONG';
+  else if (['EXITSHORT', 'CLOSE_SHORT'].includes(action)) out.recommended_action = 'EXIT_SHORT';
+  else if (!['ENTER_LONG', 'ENTER_SHORT', 'WAIT', 'EXIT_LONG', 'EXIT_SHORT'].includes(action)) out.recommended_action = 'WAIT';
+  else out.recommended_action = action;
+  if (out.signal === 'NO_TRADE') out.recommended_action = 'WAIT';
+  const confidence = Number(out.confidence);
+  out.confidence = clamp(Math.round(Number.isFinite(confidence) ? confidence : Math.abs(out.signal_score)), 0, 100);
+  const lev = Number(out.max_leverage);
+  out.max_leverage = clamp(Math.round(Number.isFinite(lev) ? lev : 1), 0, 3);
+  return out;
+}
+
 // ---- API routes (testnet only) ----
 async function handleApi(req, res) {
   const u = new URL(req.url, 'http://localhost');
@@ -121,9 +362,51 @@ async function handleApi(req, res) {
   if (pathname === '/api/testnet/status') {
     try {
       const t = await fapi('GET', '/fapi/v1/time');
-      return sendJSON(res, 200, { testnet: true, reachable: t.status === 200, serverTime: t.data && t.data.serverTime, configured: isConfigured(loadKeys()) });
+      const keys = loadKeys();
+      return sendJSON(res, 200, { testnet: true, reachable: t.status === 200, serverTime: t.data && t.data.serverTime, configured: isConfigured(keys), deepseekConfigured: isDeepseekConfigured(keys) });
     } catch (e) {
-      return sendJSON(res, 200, { testnet: true, reachable: false, configured: isConfigured(loadKeys()), error: String(e.message || e) });
+      const keys = loadKeys();
+      return sendJSON(res, 200, { testnet: true, reachable: false, configured: isConfigured(keys), deepseekConfigured: isDeepseekConfigured(keys), error: String(e.message || e) });
+    }
+  }
+
+  // DeepSeek scorer: server computes market features first, then sends numeric JSON only.
+  if (pathname === '/api/deepseek/signal' && method === 'POST') {
+    const keys = loadKeys();
+    try {
+      const features = await buildDeepseekFeatures();
+      if (!isDeepseekConfigured(keys)) {
+        return sendJSON(res, 200, {
+          configured: false,
+          localOnly: true,
+          message: 'รอ DEEPSEEK_API_KEY ใน binance.config.json',
+          features,
+          preliminary: {
+            signal: features.preliminary_signal,
+            signal_score: features.preliminary_score,
+            confidence: Math.min(95, Math.max(35, Math.abs(features.preliminary_score))),
+          },
+        });
+      }
+      const payload = {
+        model: 'deepseek-chat',
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: DEEPSEEK_SYSTEM_PROMPT },
+          { role: 'user', content: JSON.stringify(features) },
+        ],
+      };
+      const r = await httpsPostJSON('https://api.deepseek.com/chat/completions', {
+        Authorization: `Bearer ${keys.deepseekApiKey}`,
+      }, payload);
+      if (r.status !== 200) return sendJSON(res, r.status, { configured: true, error: 'deepseek error', detail: r.data, features });
+      const content = r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content;
+      const review = parseDeepseekJSON(content);
+      if (!review) return sendJSON(res, 502, { configured: true, error: 'DeepSeek did not return valid JSON', raw: content, features });
+      return sendJSON(res, 200, { configured: true, localOnly: false, features, review: normalizeDeepseekReview(features, review) });
+    } catch (e) {
+      return sendJSON(res, 502, { configured: isDeepseekConfigured(keys), error: String(e.message || e) });
     }
   }
 
@@ -167,6 +450,8 @@ async function handleApi(req, res) {
     const side = String(body.side || q.get('side') || (direction === 'LONG' ? 'BUY' : direction === 'SHORT' ? 'SELL' : '')).toUpperCase();
     const reduceOnly = body.reduceOnly === true || q.get('reduceOnly') === 'true';
     const notionalUsdt = parseFloat(body.notionalUsdt || q.get('notionalUsdt'));
+    const stopLossPrice = parseFloat(body.stopLossPrice || q.get('stopLossPrice'));
+    const takeProfitPrice = parseFloat(body.takeProfitPrice || q.get('takeProfitPrice'));
     let quantity = parseFloat(body.quantity || q.get('quantity'));
     // 🔒 safety rails: BTCUSDT เท่านั้น + ขนาดออเดอร์จำกัด กัน fat-finger (เป็น testnet อยู่แล้ว)
     if (symbol !== 'BTCUSDT') return sendJSON(res, 400, { error: 'อนุญาตเฉพาะ BTCUSDT (กันพลาด)' });
@@ -176,20 +461,71 @@ async function handleApi(req, res) {
     }
     try {
       let markPrice = 0;
-      if (notionalUsdt) {
+      if (notionalUsdt || stopLossPrice || takeProfitPrice) {
         const pr = await fapi('GET', '/fapi/v1/ticker/price', { symbol }, false);
         if (pr.status !== 200) return sendJSON(res, pr.status, { error: 'binance price error', detail: pr.data });
         markPrice = parseFloat(pr.data && pr.data.price);
-        quantity = roundStep(notionalUsdt / markPrice, 0.001);
+        if (notionalUsdt) quantity = roundStep(notionalUsdt / markPrice, 0.001);
       }
       if (!(quantity > 0) || quantity > 0.05) return sendJSON(res, 400, { error: 'quantity ต้อง > 0 และ <= 0.05' });
+      if (!reduceOnly && markPrice) {
+        if (Number.isFinite(stopLossPrice)) {
+          const validStop = side === 'BUY' ? stopLossPrice < markPrice : stopLossPrice > markPrice;
+          if (!validStop) return sendJSON(res, 400, { error: 'stopLossPrice อยู่ผิดฝั่งของราคา current mark' });
+        }
+        if (Number.isFinite(takeProfitPrice)) {
+          const validTarget = side === 'BUY' ? takeProfitPrice > markPrice : takeProfitPrice < markPrice;
+          if (!validTarget) return sendJSON(res, 400, { error: 'takeProfitPrice อยู่ผิดฝั่งของราคา current mark' });
+        }
+      }
       quantity = quantity.toFixed(3);
       const params = { symbol, side, type: 'MARKET', quantity, newOrderRespType: 'RESULT' };
       if (reduceOnly) params.reduceOnly = 'true';
       const r = await fapi('POST', '/fapi/v1/order', params, true);
       if (r.status !== 200) return sendJSON(res, r.status, { error: 'binance error', detail: r.data });
       const o = r.data || {};
-      return sendJSON(res, 200, { testnet: true, orderId: o.orderId, symbol: o.symbol, side: o.side, direction: side === 'BUY' ? 'LONG' : 'SHORT', notionalUsdt, markPrice, type: o.type, status: o.status, executedQty: o.executedQty, avgPrice: o.avgPrice, origQty: o.origQty });
+      const exitOrders = [];
+      const exitErrors = [];
+      const exitSide = side === 'BUY' ? 'SELL' : 'BUY';
+      const placeExit = async (type, stopPrice) => {
+        if (reduceOnly || !(Number.isFinite(stopPrice) && stopPrice > 0)) return;
+        const exitParams = {
+          symbol,
+          side: exitSide,
+          type,
+          quantity,
+          stopPrice: roundPrice(stopPrice),
+          reduceOnly: 'true',
+          workingType: 'MARK_PRICE',
+          newOrderRespType: 'RESULT',
+        };
+        const er = await fapi('POST', '/fapi/v1/order', exitParams, true);
+        if (er.status === 200) {
+          exitOrders.push({ type, orderId: er.data && er.data.orderId, stopPrice: exitParams.stopPrice });
+        } else {
+          exitErrors.push({ type, stopPrice: exitParams.stopPrice, detail: er.data });
+        }
+      };
+      await placeExit('STOP_MARKET', stopLossPrice);
+      await placeExit('TAKE_PROFIT_MARKET', takeProfitPrice);
+      return sendJSON(res, 200, {
+        testnet: true,
+        orderId: o.orderId,
+        symbol: o.symbol,
+        side: o.side,
+        direction: side === 'BUY' ? 'LONG' : 'SHORT',
+        notionalUsdt,
+        markPrice,
+        type: o.type,
+        status: o.status,
+        executedQty: o.executedQty,
+        avgPrice: o.avgPrice,
+        origQty: o.origQty,
+        stopLossPrice: Number.isFinite(stopLossPrice) ? roundPrice(stopLossPrice) : null,
+        takeProfitPrice: Number.isFinite(takeProfitPrice) ? roundPrice(takeProfitPrice) : null,
+        exitOrders,
+        exitErrors,
+      });
     } catch (e) {
       return sendJSON(res, 502, { error: String(e.message || e) });
     }

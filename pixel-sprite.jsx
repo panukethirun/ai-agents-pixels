@@ -231,6 +231,14 @@ const AGENTS = [
     bubbleLift:120,
     bubbleOffsetX:-4,
     palette:mkPalette({...DUNGEON_PALETTE, N:'#171b24', n:'#303847', G:'#caa84b'}) },
+  { id:'a5', name:'Sinon', role:'DeepSeek Signal Scorer', tint:'#65e3ff', map:ARCHER_MAP,
+    resource:SAO_CHARACTER_RESOURCES.sinon, image:SAO_CHARACTER_RESOURCES.sinon.image, bubbleFrame:SAO_CHARACTER_RESOURCES.sinon.frame,
+    standingBubble:'DeepSeek ready...',
+    bubbleLift:128,
+    bubbleOffsetX:-10,
+    actionLabel:'Send',
+    actionTitle:'Send calculated BTCUSDT feature JSON to DeepSeek for signal scoring and risk check',
+    palette:mkPalette({...DUNGEON_PALETTE, U:'#245f73', u:'#163947', G:'#8ee7ff'}) },
 ];
 
 // build a box-shadow string from a pixel map
@@ -270,7 +278,7 @@ function ImageSprite({src, map, scale=3, palette=SPRITE_PALETTE, flip=false, cla
 }
 
 // a single walking agent (positioned by parent via left/top %)
-function Agent({a, scale=3, showName, z}){
+function Agent({a, scale=3, showName, z, onAction}){
   const bubbleStyle = {
     ...(a.bubbleLift ? {bottom:a.bubbleLift+'%'} : {}),
     ...(a.bubbleOffsetX ? {'--bubble-x':a.bubbleOffsetX+'px'} : {}),
@@ -278,8 +286,12 @@ function Agent({a, scale=3, showName, z}){
   };
   return (
     <div className={'agent'+(a.walking?' walking':'')}
-      style={{left:a.pos.x+'%', top:a.pos.y+'%', zIndex:z}}>
+      style={{left:a.pos.x+'%', top:a.pos.y+'%', zIndex:z, marginLeft:(a.nudgeX||0)+'px'}}>
       {a.bubble && <div className={'bubble'+(a.bubbleFrame?' framed':'')} style={bubbleStyle}>{a.bubble}</div>}
+      {a.actionLabel && <button className="agent-action btn" type="button" title={a.actionTitle || a.actionLabel}
+        disabled={a.actionBusy} onClick={(e)=>{ e.stopPropagation(); onAction && onAction(a); }}>
+        {a.actionBusy ? 'Sending...' : a.actionLabel}
+      </button>}
       <div className="shadow" />
       <div className="bobber">
         <ImageSprite src={a.image} map={a.map||TRADER_MAP} scale={scale} flip={a.flip} palette={a.palette||SPRITE_PALETTE} />
