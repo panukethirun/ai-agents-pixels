@@ -11,6 +11,7 @@ const STARTS = [
   {x:55,y:WALK_LINE_Y}, // Asuna — center
   {x:86,y:WALK_LINE_Y}, // Alice — Quest Board
   {x:17,y:WALK_LINE_Y}, // Eugeo — Trading
+  {x:73,y:WALK_LINE_Y}, // Sinon — DeepSeek signal scorer
 ];
 
 function App(){
@@ -34,19 +35,22 @@ function App(){
   const [tradeBusy,setTradeBusy] = useState(false);
   const [tradeMsg,setTradeMsg]   = useState(null);
   const [accountRefresh,setAccountRefresh] = useState(0);
+  const [signalTimeframe,setSignalTimeframe] = useState('4h');
+  const [deepseek,setDeepseek] = useState({busy:false, result:null, error:null});
 
   // live crypto quotes straight from Binance WebSocket (also writes window.__livePrices for the sim)
   const market = useBinancePrices(COINS);
   // real Binance Futures testnet account (margin balance, unrealized PnL, positions) — polled via /api/testnet/account
   const account = useTestnetAccount(10000, accountRefresh);
-  // live trading signal computed from REAL Binance klines (RSI/SMA/momentum) → LONG/SHORT + confidence
-  const signal = useSignal('BTC', 20000);
+  // live trading signal computed from REAL Binance klines (EMA/Donchian/RSI/OI/funding) → LONG/SHORT/WAIT
+  const signal = useSignal('BTC', 10000, signalTimeframe);
 
   // ---- mutable sim refs ----
   const agentsRef = useRef(AGENTS.map((a,i)=>({
     id:a.id, name:a.name, role:a.role, tint:a.tint, map:a.map, palette:a.palette,
     image:a.image, resource:a.resource, bubbleFrame:a.bubbleFrame, standingBubble:a.standingBubble,
     bubbleLift:a.bubbleLift, bubbleOffsetX:a.bubbleOffsetX,
+    actionLabel:a.actionLabel, actionTitle:a.actionTitle,
     home:{...STARTS[i]}, pos:{...STARTS[i]}, target:null, phase:'idle',
     workT:0, idleT:rnd(0.4, 2.6+i*0.4), pending:null, lastSt:null, flip:false,
   })));
@@ -163,6 +167,7 @@ function App(){
         id:a.id, name:a.name, role:a.role, tint:a.tint, map:a.map, palette:a.palette,
         image:a.image, resource:a.resource, bubbleFrame:a.bubbleFrame, standingBubble:a.standingBubble,
         bubbleLift:a.bubbleLift, bubbleOffsetX:a.bubbleOffsetX,
+        actionLabel:a.actionLabel, actionTitle:a.actionTitle,
         pos:{x:a.pos.x, y:a.pos.y}, flip:a.flip,
         walking:(a.phase==='walking'), bubble:a.bubble,
         phase:a.phase, atStation:a.target&&a.target.name,
@@ -191,7 +196,6 @@ function App(){
     setActiveAnalysisId(analysis.id);
     if(view!=='analysis') setView('analysis');
   };
-  const togglePlay=()=> setSettings(s=>({...s,autopilot:!s.autopilot}));
   const onReset=()=>{
     balRef.current=START_BAL; pnlRef.current=0; clkRef.current=570; dayRef.current=1;
     agentsRef.current.forEach((a,i)=>{ a.home={...STARTS[i]}; a.pos={...STARTS[i]}; a.target=null; a.phase='idle';
@@ -205,26 +209,66 @@ function App(){
   // เพิ่มแจ้งเตือนเข้า activity log จากนอก sim loop (ใช้กับการเทรด testnet จริง)
   const pushNotifTop = (n)=> setNotifs(l=>[{id:++idc.current, time:fmtClock(clkRef.current), ...n},...l].slice(0,40));
 
+  const sendDeepseekSignal = async ()=>{
+    if(deepseek.busy) return;
+    setDeepseek({busy:true, result:deepseek.result, error:null});
+    try{
+      const res = await fetch('/api/deepseek/signal', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:'BTCUSDT', timeframe:'1h'}) });
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || ('HTTP '+res.status));
+      setDeepseek({busy:false, result:d, error:null});
+      const review = d.review || d.preliminary || {};
+      const sig = review.signal || (d.features && d.features.preliminary_signal) || 'LOCAL';
+      const score = review.signal_score ?? (d.features && d.features.preliminary_score);
+      const text = d.configured
+        ? `DeepSeek ${sig} · score ${score}`
+        : `DeepSeek key pending · local ${sig} · score ${score}`;
+      pushNotifTop({ic:'🧠', text, kind:sig.includes('SHORT')?'down':sig.includes('LONG')?'up':'plain', who:'Sinon', tint:'#65e3ff'});
+    }catch(e){
+      setDeepseek({busy:false, result:null, error:e.message||String(e)});
+      pushNotifTop({ic:'⚠️', text:'DeepSeek signal ล้มเหลว: '+(e.message||e), kind:'plain', who:'Sinon', tint:'#65e3ff'});
+    }
+  };
+
+  const buildExitPrices = (direction)=>{
+    const price = signal && Number(signal.price);
+    const stopDistance = signal && Number(signal.stopDistance);
+    if(!(price > 0) || !(stopDistance > 0)) return {};
+    const stopLossPrice = direction === 'LONG' ? price - stopDistance : price + stopDistance;
+    const takeProfitPrice = direction === 'LONG' ? price + stopDistance * 2 : price - stopDistance * 2;
+    if(!(stopLossPrice > 0) || !(takeProfitPrice > 0)) return {};
+    return {
+      stopLossPrice: Number(stopLossPrice.toFixed(2)),
+      takeProfitPrice: Number(takeProfitPrice.toFixed(2)),
+      exitRiskMode: 'ATR_3x_TP_2R',
+    };
+  };
+
   // ส่งคำสั่งจริงไป TESTNET (เงินปลอม) — ระบุ notional เป็น USDT แล้วส่ง JSON ผ่าน /api/testnet/order
   const placeTestnetOrder = async (direction, notionalUsdt, isAuto)=>{
     if(account.status!=='connected'){ setTradeMsg({ok:false, text:'ต่อ testnet ก่อน'}); return; }
     const side = direction==='LONG' ? 'BUY' : 'SELL';
     const amount = Math.max(10, Math.min(1000, Number(notionalUsdt) || 150));
+    const exitPrices = buildExitPrices(direction);
     setTradeBusy(true); setTradeMsg(null);
     try{
       const res = await fetch('/api/testnet/order', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({symbol:'BTCUSDT', direction, side, notionalUsdt:amount}),
+        body:JSON.stringify({symbol:'BTCUSDT', direction, side, notionalUsdt:amount, ...exitPrices}),
       });
       const d = await res.json();
       if(!res.ok) throw new Error(d.error || ('HTTP '+res.status));
       const fillPx = parseFloat(d.avgPrice) || parseFloat(d.markPrice) || (signal && signal.price) || 0;
       const qty = d.executedQty || d.origQty || '';
       const orderId = d.orderId ? `#${d.orderId}` : '#—';
-      const txt = `${isAuto?'🤖 AUTO ':''}${direction} ${amount} USDT (${side} ${qty} BTC) @ ~$${Math.round(fillPx).toLocaleString('en-US')} · order ${orderId}`;
+      const sl = Number(d.stopLossPrice || exitPrices.stopLossPrice);
+      const tp = Number(d.takeProfitPrice || exitPrices.takeProfitPrice);
+      const exitNote = sl && tp ? ` · SL $${sl.toLocaleString('en-US')} · TP $${tp.toLocaleString('en-US')}` : '';
+      const exitWarn = d.exitErrors && d.exitErrors.length ? `SL/TP บางรายการไม่สำเร็จ (${d.exitErrors.length})` : '';
+      const txt = `${isAuto?'🤖 AUTO ':''}${direction} ${amount} USDT (${side} ${qty} BTC) @ ~$${Math.round(fillPx).toLocaleString('en-US')} · order ${orderId}${exitNote}`;
       const modeNote = direction==='LONG' ? 'ถ้ามี Short ค้างอยู่ BUY จะลด Short ก่อน' : 'ถ้ามี Long ค้างอยู่ SELL จะลด Long ก่อน';
-      setTradeMsg({ok:true, text:'✅ SUCCESS '+txt, note:modeNote});
+      setTradeMsg({ok:true, text:'✅ SUCCESS '+txt, note:exitWarn || modeNote});
       pushNotifTop({ic:'⚡', text:txt, kind: direction==='LONG'?'up':'down', who:'Signal', tint:'var(--gold)'});
       setAccountRefresh(x=>x+1);
     }catch(e){
@@ -244,34 +288,39 @@ function App(){
     placeTestnetOrder(signal.direction, 150, true);
   }, [signal, settings.autoTrade, account.status]);
 
-  const statusLine = settings.autopilot
-    ? (PARTY_STANDING_STILL ? 'Party standing by' : `${floor.working} working · ${floor.walking} walking`)
-    : 'Floor paused — agents idle';
+  const acct = account && account.status === 'connected' ? account.account : null;
+  const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtSigned2 = (n)=> (n>=0?'+':'-')+'$'+Math.abs(Number(n||0)).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const displayAgents = agentView.map(a=>{
+    if(a.name === 'Eugeo') return {...a, nudgeX:10, bubble:`Balance ${fmtMoney2(acct ? acct.marginBalance : balance)}`};
+    if(a.name === 'Alice') return {...a, nudgeX:-15, bubble:`Unrealized ${fmtSigned2(acct ? acct.unrealizedPnl : pnlToday)}`};
+    if(a.name === 'Asuna'){
+      // สัญญาณจริงจาก Binance klines (RSI/SMA/momentum) → LONG/SHORT + confidence
+      if(!signal) return {...a, bubble:'Reading signal…'};
+      if(signal.direction === 'WAIT') return {...a, bubble:'Analyzing…'};
+      return {...a, bubble:`${signal.sym} ${signal.direction} ${signal.confidence}%!`};
+    }
+    if(a.name === 'Sinon'){
+      if(deepseek.busy) return {...a, bubble:'Sending features...', actionBusy:true};
+      if(deepseek.error) return {...a, bubble:'DeepSeek error', actionBusy:false};
+      const review = deepseek.result && (deepseek.result.review || deepseek.result.preliminary);
+      if(review){
+        const sig = review.signal || 'NO_TRADE';
+        const score = review.signal_score ?? (deepseek.result.features && deepseek.result.features.preliminary_score);
+        return {...a, bubble:`${sig} ${score}`, actionBusy:false};
+      }
+      return {...a, bubble:'DeepSeek scorer', actionBusy:false};
+    }
+    return a;
+  });
 
   return (
     <div className={'app'+(settings.anim?'':' no-anim')}>
       <div className="main">
-        <div className="hud frame">
-          <div className="ctrl">
-            <button className={'btn '+(settings.autopilot?'on':'gold')} onClick={togglePlay}>
-              {settings.autopilot?'⏸ Pause':'▶ Resume'}</button>
-          </div>
-          <div className="now">
-            <div className="pin">🤖</div>
-            <div className="txt">
-              <div className="lab">Dungeon Party · {AGENTS.length} heroes</div>
-              <div className="act">{statusLine}</div>
-            </div>
-          </div>
-          <div className="clock">Day {day} · {fmtClock(clock)}</div>
-          <div className="seg">
-            {[1,2,4].map(s=> <button key={s} className={speed===s?'on':''} onClick={()=>setSpeed(s)}>{s}×</button>)}
-          </div>
-        </div>
-
         {view==='dashboard' &&
-          <Room agents={agentView} busySet={busySet} onStationClick={onStationClick}
-            tint={settings.tint} showLabels={settings.labels} showNames={settings.names} />}
+          <Room agents={displayAgents} busySet={busySet} onStationClick={onStationClick}
+            tint={settings.tint} showLabels={settings.labels} showNames={settings.names}
+            onAgentAction={(agent)=>{ if(agent.name === 'Sinon') sendDeepseekSignal(); }} />}
         {view==='analysis' && <Analysis analyses={analyses} activeAnalysisId={activeAnalysisId}
             setActiveAnalysisId={setActiveAnalysisId} onCreateAnalysis={onCreateAnalysis}
             agents={agentView} signal={signal} />}
@@ -284,7 +333,8 @@ function App(){
         tasksDone={tasks} notifs={notifs} equity={equity} running={settings.autopilot}
         agents={agentView} market={market} account={account} history={history}
         signal={signal} onTrade={placeTestnetOrder} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
-        autoTrade={settings.autoTrade} canTrade={account.status==='connected'} />
+        autoTrade={settings.autoTrade} canTrade={account.status==='connected'}
+        signalTimeframe={signalTimeframe} setSignalTimeframe={setSignalTimeframe} />
     </div>
   );
 }
