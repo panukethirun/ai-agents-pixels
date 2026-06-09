@@ -53,6 +53,32 @@ function httpsGetJSON(url, headers) {
   });
 }
 
+async function fetchJSONFirst(urls, headers) {
+  const attempts = [];
+  for (const url of urls) {
+    try {
+      const r = await httpsGetJSON(url, headers);
+      attempts.push({
+        url,
+        status: r.status,
+        type: Array.isArray(r.data) ? 'array' : typeof r.data,
+        size: Array.isArray(r.data) ? r.data.length : undefined,
+        code: r.data && r.data.code,
+        msg: r.data && r.data.msg,
+      });
+      if (r.status === 200) return { ...r, url, attempts };
+    } catch (e) {
+      attempts.push({ url, error: String(e.message || e) });
+    }
+  }
+  return { status: 0, data: null, url: urls[urls.length - 1], attempts };
+}
+
+async function fetchOptionalJSON(urls, fallback) {
+  const r = await fetchJSONFirst(urls);
+  return r.status === 200 ? r : { ...r, data: fallback };
+}
+
 function httpsPostJSON(url, headers, payload) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload || {});
@@ -263,15 +289,35 @@ function deepseekTimeframeConfig(value) {
 
 async function buildDeepseekFeatures(timeframe) {
   const tf = deepseekTimeframeConfig(timeframe);
-  const base = 'https://fapi.binance.com';
   const symbol = 'BTCUSDT';
+  const primary = 'https://fapi.binance.com';
+  const fapi1 = 'https://fapi1.binance.com';
+  const testnet = TESTNET;
   const [kRes, oiRes, fRes, premiumRes] = await Promise.all([
-    httpsGetJSON(`${base}/fapi/v1/klines?symbol=${symbol}&interval=${tf.binance}&limit=260`),
-    httpsGetJSON(`${base}/futures/data/openInterestHist?symbol=${symbol}&period=${tf.oiPeriod}&limit=90`),
-    httpsGetJSON(`${base}/fapi/v1/fundingRate?symbol=${symbol}&limit=100`),
-    httpsGetJSON(`${base}/fapi/v1/premiumIndex?symbol=${symbol}`),
+    fetchJSONFirst([
+      `${primary}/fapi/v1/klines?symbol=${symbol}&interval=${tf.binance}&limit=260`,
+      `${fapi1}/fapi/v1/klines?symbol=${symbol}&interval=${tf.binance}&limit=260`,
+      `${testnet}/fapi/v1/klines?symbol=${symbol}&interval=${tf.binance}&limit=260`,
+    ]),
+    fetchOptionalJSON([
+      `${primary}/futures/data/openInterestHist?symbol=${symbol}&period=${tf.oiPeriod}&limit=90`,
+      `${testnet}/futures/data/openInterestHist?symbol=${symbol}&period=${tf.oiPeriod}&limit=90`,
+    ], []),
+    fetchOptionalJSON([
+      `${primary}/fapi/v1/fundingRate?symbol=${symbol}&limit=100`,
+      `${testnet}/fapi/v1/fundingRate?symbol=${symbol}&limit=100`,
+    ], []),
+    fetchOptionalJSON([
+      `${primary}/fapi/v1/premiumIndex?symbol=${symbol}`,
+      `${fapi1}/fapi/v1/premiumIndex?symbol=${symbol}`,
+      `${testnet}/fapi/v1/premiumIndex?symbol=${symbol}`,
+    ], {}),
   ]);
-  if (kRes.status !== 200 || !Array.isArray(kRes.data)) throw new Error('binance klines unavailable');
+  if (kRes.status !== 200 || !Array.isArray(kRes.data)) {
+    const err = new Error('binance klines unavailable');
+    err.debug = { timeframe: tf.value, attempts: kRes.attempts };
+    throw err;
+  }
   const klines = kRes.data.map((k) => ({
     high: parseFloat(k[2]),
     low: parseFloat(k[3]),
@@ -318,6 +364,12 @@ async function buildDeepseekFeatures(timeframe) {
     last_72h_return_pct: Number(pct(price, closes[Math.max(0, closes.length - 1 - tf.lookback72)]).toFixed(4)),
     estimated_fee_roundtrip_pct: 0.08,
     estimated_slippage_pct: 0.03,
+    data_source: kRes.url && kRes.url.includes('testnet') ? 'binance_futures_testnet' : 'binance_futures_mainnet',
+    data_warnings: [
+      oiRes.status === 200 ? null : 'open interest unavailable',
+      fRes.status === 200 ? null : 'funding history unavailable',
+      premiumRes.status === 200 ? null : 'premium index unavailable',
+    ].filter(Boolean),
   };
   return { ...features, ...scoreDeepseekFeatures(features) };
 }
@@ -335,6 +387,7 @@ async function scoreWithDeepseek(keys, timeframe) {
       debug: {
         stage: 'buildDeepseekFeatures',
         message: String(e.message || e),
+        detail: e.debug || null,
       },
     };
   }
