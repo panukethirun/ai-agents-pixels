@@ -30,7 +30,6 @@ function DeepseekLogModal({deepseek, onClose}){
   const features = active && active.features;
   const review = active && (active.review || active.preliminary);
   const activeError = (active && active.error) || (result && result.error) || deepseek.error;
-  const activeDebug = (active && active.debug) || (result && result.debug) || null;
   const fmt = (v)=> v == null ? '—' : String(v);
   const fmtObj = (v)=> {
     if(v == null) return '—';
@@ -67,15 +66,15 @@ function DeepseekLogModal({deepseek, onClose}){
         onClick={(e)=>e.stopPropagation()}>
         <div className="deepseek-log-head">
           <div>
-            <div className="label">DeepSeek API Response</div>
-            <h2>Sinon Signal Log</h2>
+            <div className="label">DeepSeek AI Response</div>
+            <h2>Sinon Signal Details</h2>
           </div>
           <button className="btn deepseek-close" type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
         {deepseek.busy && <div className="deepseek-empty mono">Sending feature JSON to DeepSeek...</div>}
         {deepseek.error && <div className="deepseek-empty mono down">Error: {deepseek.error}</div>}
         {!deepseek.busy && !deepseek.error && !result && (
-          <div className="deepseek-empty mono">ยังไม่มี response ล่าสุด กด Send ที่ Sinon ก่อนครับ</div>
+          <div className="deepseek-empty mono">ยังไม่มี response ล่าสุด กด Ask AI ที่ Sinon ก่อนครับ</div>
         )}
         {result && (
           <>
@@ -107,12 +106,6 @@ function DeepseekLogModal({deepseek, onClose}){
                 <p><strong>Error</strong> {fmt(activeError)}</p>
                 {active && active.detail && <pre>{fmtObj(active.detail)}</pre>}
                 {result && result.httpStatus && <p><strong>HTTP</strong> {result.httpStatus} {result.statusText || ''}</p>}
-              </div>
-            )}
-            {activeDebug && (
-              <div className="deepseek-debug">
-                <div className="label">Request Debug</div>
-                <pre>{fmtObj(activeDebug)}</pre>
               </div>
             )}
             {humanSummary.length > 0 && (
@@ -368,6 +361,7 @@ function App(){
         return;
       }
       setDeepseek({busy:false, result:responseWithMeta, error:null});
+      setDeepseekLogOpen(true);
       const primary = d.multi ? (d.results || []).find(r=>r.features && r.features.timeframe === '1h') || (d.results || [])[0] : d;
       const review = (primary && (primary.review || primary.preliminary)) || {};
       const sig = review.signal || (primary && primary.features && primary.features.preliminary_signal) || 'LOCAL';

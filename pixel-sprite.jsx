@@ -236,8 +236,8 @@ const AGENTS = [
     standingBubble:'DeepSeek ready...',
     bubbleLift:128,
     bubbleOffsetX:-10,
-    actionLabel:'Send',
-    actionTitle:'Send calculated BTCUSDT feature JSON to DeepSeek for signal scoring and risk check',
+    actionLabel:'Ask AI',
+    actionTitle:'Ask DeepSeek AI to review BTCUSDT signal details',
     palette:mkPalette({...DUNGEON_PALETTE, U:'#245f73', u:'#163947', G:'#8ee7ff'}) },
 ];
 
@@ -294,7 +294,7 @@ function Agent({a, scale=3, showName, z, onAction, onBubble}){
       </button>}
       {a.actionLabel && <button className="agent-action btn" type="button" title={a.actionTitle || a.actionLabel}
         disabled={a.actionBusy} onClick={(e)=>{ e.stopPropagation(); onAction && onAction(a); }}>
-        {a.actionBusy ? 'Sending...' : a.actionLabel}
+        {a.actionBusy ? 'Asking...' : a.actionLabel}
       </button>}
       <div className="shadow" />
       <div className="bobber">
