@@ -43,7 +43,7 @@ function Settings({settings, setSettings, onReset, speed, setSpeed}){
   };
   const toggleAutoLine = ()=>{
     if(settings.autoLine){ set('autoLine', false); return; }
-    const ok = window.confirm('เปิด Auto LINE alert?\n\nเมื่อ Live Signal เป็น LONG/SHORT และ confidence ≥ 90% ระบบจะส่งข้อความเข้า LINE อัตโนมัติ พร้อม cooldown 30 นาทีต่อทิศทาง/timeframe');
+    const ok = window.confirm('เปิด Auto LINE alert?\n\nเมื่อ Live Signal เป็น LONG/SHORT และ confidence ≥ 80% ระบบจะส่งข้อความเข้า LINE อัตโนมัติ พร้อม cooldown 30 นาทีต่อทิศทาง/timeframe');
     if(ok) set('autoLine', true);
   };
   return (
@@ -76,7 +76,7 @@ function Settings({settings, setSettings, onReset, speed, setSpeed}){
         <Toggle on={settings.autoTrade} onClick={toggleAutoTrade} />
       </div>
       <div className="set-row">
-        <div className="k">Auto LINE alert<small>Signal ≥ 90% → ส่ง LINE อัตโนมัติ (cooldown 30 นาที)</small></div>
+        <div className="k">Auto LINE alert<small>Signal ≥ 80% → ส่ง LINE อัตโนมัติ (cooldown 30 นาที)</small></div>
         <Toggle on={settings.autoLine} onClick={toggleAutoLine} />
       </div>
       <div className="set-row">

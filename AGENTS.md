@@ -182,7 +182,7 @@ Frontend signal logic is in `signals.jsx`; DeepSeek feature/preliminary scoring 
   - `LINE_TO_ID`
 - Auto LINE alert is enabled by `settings.autoLine`.
 - The UI should show auto LINE status only for high-confidence LONG/SHORT signals.
-- Current confidence threshold is `>= 90%`.
+- Current confidence threshold is `>= 80%` for any timeframe.
 - The frontend auto-sends with cooldown 30 minutes per symbol/timeframe/direction.
 - The server must require `confirmed: true` from app logic and re-check direction/confidence before pushing.
 - Never expose LINE credentials to browser code.

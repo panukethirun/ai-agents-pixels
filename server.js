@@ -503,7 +503,7 @@ function normalizeDeepseekReview(features, review) {
   return out;
 }
 
-const LINE_SIGNAL_CONFIDENCE_THRESHOLD = 90;
+const LINE_SIGNAL_CONFIDENCE_THRESHOLD = 80;
 
 function formatLineSignalMessage(signal) {
   const dir = String(signal.direction || '').toUpperCase();
@@ -516,7 +516,6 @@ function formatLineSignalMessage(signal) {
   const rsi = signal.rsi == null ? '—' : signal.rsi;
   const atr = signal.stopDistance == null ? '—' : Number(signal.stopDistance).toLocaleString('en-US', { maximumFractionDigits: 2 });
   return [
-    'PixelCrypto Signal Confirmed',
     `Symbol: ${signal.sym || 'BTC'}USDT`,
     `Direction: ${dir}`,
     `Confidence: ${confidence}%`,

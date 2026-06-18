@@ -458,8 +458,8 @@ function App(){
     if(lineBusy || !sig) return;
     const direction = String(sig.direction || '').toUpperCase();
     const confidence = Number(sig.confidence) || 0;
-    if(!['LONG','SHORT'].includes(direction) || confidence < 90){
-      setLineMsg({ok:false, text:'LINE ส่งได้เฉพาะ LONG/SHORT ที่ confidence >= 90%'});
+    if(!['LONG','SHORT'].includes(direction) || confidence < 80){
+      setLineMsg({ok:false, text:'LINE ส่งได้เฉพาะ LONG/SHORT ที่ confidence >= 80%'});
       return;
     }
     const confirmed = auto || typeof window === 'undefined' ? true : window.confirm(`ส่ง ${direction} ${confidence}% เข้า LINE ใช่ไหม?`);
@@ -484,13 +484,13 @@ function App(){
     }
   };
 
-  // AUTO LINE alert: ส่งเฉพาะ LONG/SHORT confidence >= 90% พร้อม cooldown กัน spam.
+  // AUTO LINE alert: ส่งเฉพาะ LONG/SHORT confidence >= 80% พร้อม cooldown กัน spam.
   const lineAutoRef = useRef({t:0, key:''});
   useEffect(()=>{
     if(!settings.autoLine || !signal || lineBusy) return;
     const direction = String(signal.direction || '').toUpperCase();
     const confidence = Number(signal.confidence) || 0;
-    if(!['LONG','SHORT'].includes(direction) || confidence < 90) return;
+    if(!['LONG','SHORT'].includes(direction) || confidence < 80) return;
     const key = `${signal.sym || 'BTC'}:${signal.timeframe || signalTimeframe}:${direction}`;
     const now = Date.now();
     if(lineAutoRef.current.key === key && now - lineAutoRef.current.t < 30 * 60 * 1000) return;

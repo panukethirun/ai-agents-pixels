@@ -222,7 +222,7 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, time
   const hot = signal.confidence >= 80;
   const dir = signal.direction;
   const dirClass = dir === 'LONG' ? 'long' : dir === 'SHORT' ? 'short' : 'wait';
-  const lineReady = signal.confidence >= 90 && (dir === 'LONG' || dir === 'SHORT');
+  const lineReady = signal.confidence >= 80 && (dir === 'LONG' || dir === 'SHORT');
   const parsedNotional = Math.max(10, Math.min(1000, Number(notional) || 0));
   const longExit = _exitPlan(signal, 'LONG');
   const shortExit = _exitPlan(signal, 'SHORT');

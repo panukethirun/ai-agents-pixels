@@ -200,7 +200,7 @@ LINE Notify ปิดบริการแล้ว ระบบนี้จึ�
    - ส่งเข้ากลุ่ม: ใช้ Group ID จาก webhook event หลังเชิญ bot เข้ากลุ่ม
 5. เปิดแอปไว้หรือ deploy บน Vercel ให้ server ทำงาน
 
-เมื่อ Live Signal เป็น `LONG` หรือ `SHORT` และ confidence `>= 90%` ระบบจะส่ง LINE อัตโนมัติ พร้อม cooldown 30 นาทีต่อ symbol/timeframe/direction เพื่อกันสแปม
+เมื่อ Live Signal เป็น `LONG` หรือ `SHORT` และ confidence `>= 80%` ระบบจะส่ง LINE อัตโนมัติ ไม่ว่าจะเป็น timeframe ใด พร้อม cooldown 30 นาทีต่อ symbol/timeframe/direction เพื่อกันสแปม
 
 ข้อควรระวัง:
 
