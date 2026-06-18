@@ -23,21 +23,26 @@ const TESTNET = 'https://testnet.binancefuture.com';
 
 // ---- โหลดคีย์ (server-side เท่านั้น) ----
 function loadKeys() {
-  let apiKey = '', apiSecret = '', deepseekApiKey = '';
+  let apiKey = '', apiSecret = '', deepseekApiKey = '', lineChannelAccessToken = '', lineToId = '';
   try {
     const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'binance.config.json'), 'utf8'));
     apiKey = j.apiKey || '';
     apiSecret = j.apiSecret || '';
     deepseekApiKey = j.DEEPSEEK_API_KEY || j.deepseekApiKey || '';
+    lineChannelAccessToken = j.LINE_CHANNEL_ACCESS_TOKEN || j.lineChannelAccessToken || '';
+    lineToId = j.LINE_TO_ID || j.lineToId || '';
   } catch (e) { /* ไม่มีไฟล์ก็ไม่เป็นไร */ }
   apiKey = process.env.BINANCE_TESTNET_KEY || apiKey;
   apiSecret = process.env.BINANCE_TESTNET_SECRET || apiSecret;
   deepseekApiKey = process.env.DEEPSEEK_API_KEY || deepseekApiKey;
-  return { apiKey, apiSecret, deepseekApiKey };
+  lineChannelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN || lineChannelAccessToken;
+  lineToId = process.env.LINE_TO_ID || lineToId;
+  return { apiKey, apiSecret, deepseekApiKey, lineChannelAccessToken, lineToId };
 }
 const isPlaceholder = (s) => !s || /PUT_YOUR/.test(s);
 const isConfigured = (k) => !isPlaceholder(k.apiKey) && !isPlaceholder(k.apiSecret);
 const isDeepseekConfigured = (k) => !isPlaceholder(k.deepseekApiKey);
+const isLineConfigured = (k) => !isPlaceholder(k.lineChannelAccessToken) && !isPlaceholder(k.lineToId);
 
 // ---- ดิบ HTTP GET คืน JSON ----
 function httpsGetJSON(url, headers) {
@@ -498,6 +503,44 @@ function normalizeDeepseekReview(features, review) {
   return out;
 }
 
+const LINE_SIGNAL_CONFIDENCE_THRESHOLD = 90;
+
+function formatLineSignalMessage(signal) {
+  const dir = String(signal.direction || '').toUpperCase();
+  const confidence = Math.round(Number(signal.confidence) || 0);
+  const price = Number(signal.price);
+  const timeframe = signal.timeframe || '4h';
+  const updatedAt = signal.updatedAt ? new Date(Number(signal.updatedAt)).toLocaleString('en-US', { hour12: false }) : new Date().toLocaleString('en-US', { hour12: false });
+  const priceText = Number.isFinite(price) ? '$' + price.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—';
+  const score = signal.score == null ? '—' : signal.score;
+  const rsi = signal.rsi == null ? '—' : signal.rsi;
+  const atr = signal.stopDistance == null ? '—' : Number(signal.stopDistance).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return [
+    'PixelCrypto Signal Confirmed',
+    `Symbol: ${signal.sym || 'BTC'}USDT`,
+    `Direction: ${dir}`,
+    `Confidence: ${confidence}%`,
+    `Timeframe: ${timeframe}`,
+    `Price: ${priceText}`,
+    `Score: ${score} | RSI: ${rsi}`,
+    `3ATR Stop Distance: ${atr}`,
+    `Updated: ${updatedAt}`,
+    '',
+    'Testnet dashboard signal only. Not financial advice.',
+  ].join('\n');
+}
+
+async function sendLineSignal(keys, signal) {
+  const text = formatLineSignalMessage(signal);
+  const r = await httpsPostJSON('https://api.line.me/v2/bot/message/push', {
+    Authorization: `Bearer ${keys.lineChannelAccessToken}`,
+  }, {
+    to: keys.lineToId,
+    messages: [{ type: 'text', text }],
+  });
+  return { status: r.status, data: r.data, text };
+}
+
 // ---- API routes (testnet only) ----
 async function handleApi(req, res) {
   const u = new URL(req.url, 'http://localhost');
@@ -510,10 +553,10 @@ async function handleApi(req, res) {
     try {
       const t = await fapi('GET', '/fapi/v1/time');
       const keys = loadKeys();
-      return sendJSON(res, 200, { testnet: true, reachable: t.status === 200, serverTime: t.data && t.data.serverTime, configured: isConfigured(keys), deepseekConfigured: isDeepseekConfigured(keys) });
+      return sendJSON(res, 200, { testnet: true, reachable: t.status === 200, serverTime: t.data && t.data.serverTime, configured: isConfigured(keys), deepseekConfigured: isDeepseekConfigured(keys), lineConfigured: isLineConfigured(keys) });
     } catch (e) {
       const keys = loadKeys();
-      return sendJSON(res, 200, { testnet: true, reachable: false, configured: isConfigured(keys), deepseekConfigured: isDeepseekConfigured(keys), error: String(e.message || e) });
+      return sendJSON(res, 200, { testnet: true, reachable: false, configured: isConfigured(keys), deepseekConfigured: isDeepseekConfigured(keys), lineConfigured: isLineConfigured(keys), error: String(e.message || e) });
     }
   }
 
@@ -556,6 +599,30 @@ async function handleApi(req, res) {
           deepseekConfigured: isDeepseekConfigured(keys),
         },
       });
+    }
+  }
+
+  // ส่ง signal เข้า LINE Messaging API หลังผู้ใช้กด confirm เท่านั้น.
+  if (pathname === '/api/line/signal' && method === 'POST') {
+    const keys = loadKeys();
+    if (!isLineConfigured(keys)) return sendJSON(res, 400, { error: 'ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN / LINE_TO_ID' });
+    let body = {};
+    try { body = await readJSONBody(req); }
+    catch (e) { return sendJSON(res, 400, { error: e.message }); }
+    const signal = body.signal || {};
+    const direction = String(signal.direction || '').toUpperCase();
+    const confidence = Number(signal.confidence) || 0;
+    if (body.confirmed !== true) return sendJSON(res, 400, { error: 'LINE request must be confirmed by app logic' });
+    if (!['LONG', 'SHORT'].includes(direction)) return sendJSON(res, 400, { error: 'ส่ง LINE เฉพาะสัญญาณ LONG หรือ SHORT เท่านั้น' });
+    if (confidence < LINE_SIGNAL_CONFIDENCE_THRESHOLD) {
+      return sendJSON(res, 400, { error: `confidence ต้อง >= ${LINE_SIGNAL_CONFIDENCE_THRESHOLD}%` });
+    }
+    try {
+      const r = await sendLineSignal(keys, signal);
+      if (r.status < 200 || r.status >= 300) return sendJSON(res, r.status || 502, { error: 'line push failed', detail: r.data });
+      return sendJSON(res, 200, { ok: true, lineStatus: r.status, text: r.text });
+    } catch (e) {
+      return sendJSON(res, 502, { error: String(e.message || e) });
     }
   }
 

@@ -92,7 +92,7 @@ function MapMenu({maps,mapId,setMapId}){
 function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLabel,running,agents,market,account,history,
                   signal,onTrade,tradeBusy,tradeMsg,autoTrade,canTrade,signalTimeframe,setSignalTimeframe,
                   mobilePreview,setMobilePreview,maps,mapId,setMapId,
-                  deepseek,onAskAI,onOpenDeepseekLog}){
+                  deepseek,onAskAI,onOpenDeepseekLog,lineBusy,lineMsg,autoLine,onSendLine}){
   const listRef = React.useRef(null);
   const acct = account && account.status === 'connected' ? account.account : null;
   const fmtMoney2 = (n)=> '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
@@ -175,7 +175,8 @@ function Sidebar({view,setView,balance,pnlToday,tasksDone,notifs,equity,statusLa
       <SignalCard signal={signal} onTrade={onTrade} tradeBusy={tradeBusy} tradeMsg={tradeMsg}
         auto={autoTrade} canTrade={canTrade}
         timeframe={signalTimeframe} onTimeframeChange={setSignalTimeframe}
-        deepseek={deepseek} onAskAI={onAskAI} onOpenDeepseekLog={onOpenDeepseekLog} />
+        deepseek={deepseek} onAskAI={onAskAI} onOpenDeepseekLog={onOpenDeepseekLog}
+        lineBusy={lineBusy} lineMsg={lineMsg} autoLine={autoLine} onSendLine={onSendLine} />
 
       <div className="side-card frame tight">
         <div className="label">The Team</div>

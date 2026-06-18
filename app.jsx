@@ -156,9 +156,11 @@ function App(){
   const [clock,setClock]     = useState(570);
   const [day,setDay]         = useState(1);
   const [speed,setSpeed]     = useState(1);
-  const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true, autoTrade:false});
+  const [settings,setSettings] = useState({autopilot:true, anim:true, tint:true, aggr:1, labels:true, names:true, autoTrade:false, autoLine:true});
   const [tradeBusy,setTradeBusy] = useState(false);
   const [tradeMsg,setTradeMsg]   = useState(null);
+  const [lineBusy,setLineBusy] = useState(false);
+  const [lineMsg,setLineMsg] = useState(null);
   const [accountRefresh,setAccountRefresh] = useState(0);
   const [signalTimeframe,setSignalTimeframe] = useState('4h');
   const [deepseek,setDeepseek] = useState({busy:false, result:null, error:null});
@@ -451,6 +453,51 @@ function App(){
     }finally{ setTradeBusy(false); }
   };
 
+  const sendLineSignal = async (sig, options)=>{
+    const auto = options && options.auto;
+    if(lineBusy || !sig) return;
+    const direction = String(sig.direction || '').toUpperCase();
+    const confidence = Number(sig.confidence) || 0;
+    if(!['LONG','SHORT'].includes(direction) || confidence < 90){
+      setLineMsg({ok:false, text:'LINE ส่งได้เฉพาะ LONG/SHORT ที่ confidence >= 90%'});
+      return;
+    }
+    const confirmed = auto || typeof window === 'undefined' ? true : window.confirm(`ส่ง ${direction} ${confidence}% เข้า LINE ใช่ไหม?`);
+    if(!confirmed) return;
+    setLineBusy(true); setLineMsg(null);
+    try{
+      const res = await fetch('/api/line/signal', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({confirmed:true, signal:sig}),
+      });
+      const d = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(d.error || ('HTTP '+res.status));
+      setLineMsg({ok:true, text:(auto?'Auto ':'')+'ส่ง Signal เข้า LINE แล้ว'});
+      pushNotifTop({ic:'💬', text:`${auto?'AUTO ':''}LINE sent ${direction} ${confidence}%`, kind:direction==='LONG'?'up':'down', who:'Signal', tint:'#06c755'});
+    }catch(e){
+      const msg = e.message || String(e);
+      setLineMsg({ok:false, text:'LINE ส่งไม่สำเร็จ: '+msg});
+      pushNotifTop({ic:'⚠️', text:'LINE ส่งไม่สำเร็จ: '+msg, kind:'plain', who:'Signal', tint:'#06c755'});
+    }finally{
+      setLineBusy(false);
+    }
+  };
+
+  // AUTO LINE alert: ส่งเฉพาะ LONG/SHORT confidence >= 90% พร้อม cooldown กัน spam.
+  const lineAutoRef = useRef({t:0, key:''});
+  useEffect(()=>{
+    if(!settings.autoLine || !signal || lineBusy) return;
+    const direction = String(signal.direction || '').toUpperCase();
+    const confidence = Number(signal.confidence) || 0;
+    if(!['LONG','SHORT'].includes(direction) || confidence < 90) return;
+    const key = `${signal.sym || 'BTC'}:${signal.timeframe || signalTimeframe}:${direction}`;
+    const now = Date.now();
+    if(lineAutoRef.current.key === key && now - lineAutoRef.current.t < 30 * 60 * 1000) return;
+    lineAutoRef.current = {t:now, key};
+    sendLineSignal(signal, {auto:true});
+  }, [signal, settings.autoLine, lineBusy, signalTimeframe]);
+
   // AUTO mode (testnet, opt-in): ยิงคำสั่งเมื่อ confidence >= 80% + cooldown 60s ต่อทิศทาง
   const autoRef = useRef({t:0, dir:null});
   useEffect(()=>{
@@ -503,7 +550,8 @@ function App(){
         signalTimeframe={signalTimeframe} setSignalTimeframe={setSignalTimeframe}
         mobilePreview={mobilePreview} setMobilePreview={setMobilePreview}
         maps={MAPS} mapId={mapId} setMapId={setMapId}
-        deepseek={deepseek} onAskAI={sendDeepseekSignal} onOpenDeepseekLog={()=>setDeepseekLogOpen(true)} />
+        deepseek={deepseek} onAskAI={sendDeepseekSignal} onOpenDeepseekLog={()=>setDeepseekLogOpen(true)}
+        lineBusy={lineBusy} lineMsg={lineMsg} autoLine={settings.autoLine} onSendLine={sendLineSignal} />
       {deepseekLogOpen && <DeepseekLogModal deepseek={deepseek} onClose={()=>setDeepseekLogOpen(false)} />}
     </div>
   );

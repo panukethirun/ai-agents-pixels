@@ -198,7 +198,7 @@ function _exitPlan(signal, direction) {
     : { stopLoss: price + stopDistance, takeProfit: price - stopDistance * 2 };
 }
 
-function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, timeframe, onTimeframeChange, deepseek, onAskAI, onOpenDeepseekLog }) {
+function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, timeframe, onTimeframeChange, deepseek, onAskAI, onOpenDeepseekLog, lineBusy, lineMsg, autoLine, onSendLine }) {
   const [notional, setNotional] = React.useState(150);
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
@@ -222,6 +222,7 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, time
   const hot = signal.confidence >= 80;
   const dir = signal.direction;
   const dirClass = dir === 'LONG' ? 'long' : dir === 'SHORT' ? 'short' : 'wait';
+  const lineReady = signal.confidence >= 90 && (dir === 'LONG' || dir === 'SHORT');
   const parsedNotional = Math.max(10, Math.min(1000, Number(notional) || 0));
   const longExit = _exitPlan(signal, 'LONG');
   const shortExit = _exitPlan(signal, 'SHORT');
@@ -275,6 +276,20 @@ function SignalCard({ signal, onTrade, tradeBusy, tradeMsg, auto, canTrade, time
           : dsReview
             ? <div className="ask-ai-note mono">DeepSeek: <strong className={dsCls}>{dsSig || '—'}</strong> · score {dsScore ?? '—'} · 4 TF</div>
             : null}
+
+        {lineReady && (
+          <div className="line-confirm">
+            <div className={'line-auto-state mono ' + (autoLine ? 'on' : 'off')}>
+              {lineBusy ? 'Sending LINE…' : autoLine ? 'Auto LINE armed' : 'Auto LINE off'}
+            </div>
+            {!autoLine && <button className="btn line-confirm-btn" type="button" disabled={lineBusy}
+              onClick={() => onSendLine && onSendLine(signal)}>
+              Send LINE now
+            </button>}
+            <div className="line-confirm-note mono">High confidence signal · {autoLine ? 'will send automatically' : 'enable Auto LINE in Settings'}</div>
+          </div>
+        )}
+        {lineMsg && <div className={'line-msg mono ' + (lineMsg.ok ? 'up' : 'down')}>{lineMsg.text}</div>}
 
         {auto && hot && <div className="mono muted" style={{ fontSize: 13 }}>🤖 auto armed — จะยิงให้อัตโนมัติบน testnet</div>}
         <div className="signal-order">

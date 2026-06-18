@@ -16,7 +16,7 @@ PixelCrypto เป็นเว็บแอป React แบบไม่ต้อ�
 - `Asuna` แสดงสัญญาณจากระบบ Live Signal
 - `Eugeo` แสดง Balance
 - `Alice` แสดง Unrealized P&L
-- `Sinon` เป็น DeepSeek Signal Scorer พร้อมปุ่ม `Send`
+- `Sinon` เป็น DeepSeek Signal Scorer พร้อมปุ่ม `Ask AI`
 
 ระบบใช้ข้อมูลตลาดจริงจาก Binance Futures เพื่อคำนวณสัญญาณ และสามารถส่งคำสั่งไป Binance Futures Testnet ได้จริงด้วยเงินปลอม
 
@@ -32,7 +32,8 @@ PixelCrypto เป็นเว็บแอป React แบบไม่ต้อ�
 - **Binance Futures Testnet** — ดู balance, unrealized P&L, open position และส่ง order ไป testnet
 - **Open Long / Open Short** — ใส่จำนวน USDT แล้วส่ง JSON ไปเปิด position จริงบน testnet
 - **Stop loss / Take profit** — ส่ง SL/TP อัตโนมัติหลัง market order สำเร็จ
-- **DeepSeek Signal Scorer** — ปุ่ม `Send` ที่ตัวละคร Sinon เพื่อส่ง feature JSON ให้ DeepSeek review สัญญาณ
+- **DeepSeek Signal Scorer** — ปุ่ม `Ask AI` ที่ตัวละคร Sinon เพื่อส่ง feature JSON ให้ DeepSeek review สัญญาณ
+- **Auto LINE Alert** — เมื่อ Live Signal เป็น `LONG/SHORT` และ confidence สูงมาก ระบบส่ง alert เข้า LINE อัตโนมัติผ่าน Messaging API
 - **Project logo** — README/GitHub logo, favicon และ app icon แบบ rounded pixel-art
 
 ## Live Signal ทำงานอย่างไร?
@@ -79,7 +80,7 @@ Live Signal แสดงระยะ `3 * ATR(14)` และตอนส่ง o
 
 ตัวละคร `Sinon` ทำหน้าที่เป็น Signal Scorer + Risk Checker
 
-เมื่อกดปุ่ม `Send` ระบบจะ:
+เมื่อกดปุ่ม `Ask AI` ระบบจะ:
 
 1. ดึงข้อมูล BTCUSDT Perpetual Futures จาก Binance Futures ทั้ง `1h`, `4h`, `1d`, `1week`
 2. คำนวณ feature เช่น EMA, RSI, MACD histogram, ATR, volume z-score, OI, funding, basis, Donchian breakout
@@ -87,7 +88,7 @@ Live Signal แสดงระยะ `3 * ATR(14)` และตอนส่ง o
 4. ส่ง feature JSON ให้ DeepSeek
 5. รับ strict JSON กลับมาเป็น final signal review
 6. normalize response ให้เข้ารูปแบบที่ระบบใช้ เช่น `ENTER_LONG`, `ENTER_SHORT`, `WAIT`
-7. แสดงผลใน `Sinon Signal Log` เป็นภาษาคนอ่าน พร้อม tab แยกแต่ละ timeframe
+7. แสดงผลใน `Sinon Signal Details` เป็นภาษาคนอ่าน พร้อม tab แยกแต่ละ timeframe
 
 ถ้ายังไม่มี `DEEPSEEK_API_KEY` ระบบจะคืน local preliminary score แทน เพื่อให้ UI ใช้งานรอ key ได้
 
@@ -140,6 +141,8 @@ server.js
 BINANCE_TESTNET_KEY
 BINANCE_TESTNET_SECRET
 DEEPSEEK_API_KEY
+LINE_CHANNEL_ACCESS_TOKEN
+LINE_TO_ID
 ```
 
 หลัง deploy แล้ว endpoint จะเป็น path เดิม:
@@ -173,15 +176,31 @@ cp binance.config.example.json binance.config.json
   "testnet": true,
   "apiKey": "BINANCE_FUTURES_TESTNET_KEY",
   "apiSecret": "BINANCE_FUTURES_TESTNET_SECRET",
-  "DEEPSEEK_API_KEY": "DEEPSEEK_API_KEY"
+  "DEEPSEEK_API_KEY": "DEEPSEEK_API_KEY",
+  "LINE_CHANNEL_ACCESS_TOKEN": "LINE_MESSAGING_API_CHANNEL_ACCESS_TOKEN",
+  "LINE_TO_ID": "LINE_USER_OR_GROUP_ID"
 }
 ```
 
 หรือใช้ environment variables:
 
 ```bash
-BINANCE_TESTNET_KEY=... BINANCE_TESTNET_SECRET=... DEEPSEEK_API_KEY=... node server.js
+BINANCE_TESTNET_KEY=... BINANCE_TESTNET_SECRET=... DEEPSEEK_API_KEY=... LINE_CHANNEL_ACCESS_TOKEN=... LINE_TO_ID=... node server.js
 ```
+
+### LINE Alert ทำงานยังไง?
+
+LINE Notify ปิดบริการแล้ว ระบบนี้จึงใช้ LINE Messaging API ของ LINE Official Account:
+
+1. สร้าง LINE Official Account และ Messaging API channel ใน LINE Developers
+2. นำ Channel access token มาใส่ใน `LINE_CHANNEL_ACCESS_TOKEN`
+3. ให้บัญชี LINE ของคุณ add official account นั้นเป็นเพื่อน หรือเชิญ bot เข้ากลุ่ม
+4. ใส่ target id ใน `LINE_TO_ID`
+   - ส่งหาตัวเอง: ใช้ User ID ของคุณจาก LINE Developers Console
+   - ส่งเข้ากลุ่ม: ใช้ Group ID จาก webhook event หลังเชิญ bot เข้ากลุ่ม
+5. เปิดแอปไว้หรือ deploy บน Vercel ให้ server ทำงาน
+
+เมื่อ Live Signal เป็น `LONG` หรือ `SHORT` และ confidence `>= 90%` ระบบจะส่ง LINE อัตโนมัติ พร้อม cooldown 30 นาทีต่อ symbol/timeframe/direction เพื่อกันสแปม
 
 ข้อควรระวัง:
 
@@ -189,6 +208,7 @@ BINANCE_TESTNET_KEY=... BINANCE_TESTNET_SECRET=... DEEPSEEK_API_KEY=... node ser
 - `binance.config.json` ถูก `.gitignore`
 - server บล็อกการเสิร์ฟ `binance.config.json`
 - คีย์ไม่ถูกส่งไป browser
+- LINE credentials อยู่ฝั่ง server เท่านั้น ห้ามใส่ใน frontend
 
 ## API Endpoints
 
@@ -198,6 +218,7 @@ BINANCE_TESTNET_KEY=... BINANCE_TESTNET_SECRET=... DEEPSEEK_API_KEY=... node ser
 | `/api/testnet/account` | `GET` | อ่าน balance, unrealized P&L และ positions |
 | `/api/testnet/order` | `POST` | เปิด/ปิด position บน Binance Futures Testnet |
 | `/api/deepseek/signal` | `POST` | คำนวณ feature และส่งให้ DeepSeek review |
+| `/api/line/signal` | `POST` | ส่ง high-confidence signal เข้า LINE จาก app logic |
 
 ตัวอย่างเช็คสถานะ:
 

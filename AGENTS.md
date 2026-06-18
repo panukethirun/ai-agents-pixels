@@ -21,7 +21,7 @@ PixelCrypto เป็นเว็บแอป React แบบไม่ต้อ�
   - `Asuna` แสดง Live Signal
   - `Eugeo` แสดง Balance
   - `Alice` แสดง Unrealized P&L
-  - `Sinon` เป็น DeepSeek Signal Scorer และมีปุ่ม `Send`
+  - `Sinon` เป็น DeepSeek Signal Scorer และมีปุ่ม `Ask AI`
 - ตัวละครยืนอยู่กับที่ ไม่เดินสุ่มแล้ว
 - Desktop และ mobile layout ใช้ตำแหน่งตัวละครคนละชุดเพื่อกันการซ้อนกัน
 - Top nav มี Dashboard, Mobile UI, History, Settings
@@ -99,6 +99,8 @@ Environment variables:
 BINANCE_TESTNET_KEY
 BINANCE_TESTNET_SECRET
 DEEPSEEK_API_KEY
+LINE_CHANNEL_ACCESS_TOKEN
+LINE_TO_ID
 ```
 
 Local config fallback:
@@ -114,6 +116,7 @@ Never commit `binance.config.json`. It contains private credentials and is inten
 - Use Binance Futures Testnet only.
 - Server signs Binance requests; keys must never reach the browser.
 - `/api/testnet/order` is the only path that places orders.
+- `/api/line/signal` sends LINE alerts from guarded app logic only.
 - Order flow:
   - Market order first
   - Then optional `STOP_MARKET` and `TAKE_PROFIT_MARKET`
@@ -165,11 +168,24 @@ Frontend signal logic is in `signals.jsx`; DeepSeek feature/preliminary scoring 
 
 ## DeepSeek / Sinon
 
-- Sinon has a `Send` button in the dashboard.
+- Sinon has an `Ask AI` button in the dashboard.
 - Clicking it calls `/api/deepseek/signal` with timeframes `1h`, `4h`, `1d`, `1week`.
 - The modal summarizes response in human-readable form and includes debug sections for failures.
 - If DeepSeek key is missing, server returns local/preliminary scoring so UI can still work.
 - For Vercel debugging, preserve response metadata: HTTP status, status text, stage, environment, configured flag, detail/raw when available.
+
+## LINE Signal Alerts
+
+- Use LINE Messaging API, not LINE Notify. LINE Notify ended service on March 31, 2025.
+- Required server-side config:
+  - `LINE_CHANNEL_ACCESS_TOKEN`
+  - `LINE_TO_ID`
+- Auto LINE alert is enabled by `settings.autoLine`.
+- The UI should show auto LINE status only for high-confidence LONG/SHORT signals.
+- Current confidence threshold is `>= 90%`.
+- The frontend auto-sends with cooldown 30 minutes per symbol/timeframe/direction.
+- The server must require `confirmed: true` from app logic and re-check direction/confidence before pushing.
+- Never expose LINE credentials to browser code.
 
 ## Mobile Layout Notes
 
@@ -244,6 +260,8 @@ git status --short
   - `BINANCE_TESTNET_KEY`
   - `BINANCE_TESTNET_SECRET`
   - `DEEPSEEK_API_KEY`
+  - `LINE_CHANNEL_ACCESS_TOKEN`
+  - `LINE_TO_ID`
 - API wrappers in `api/` should stay tiny and delegate to `handleApi(req,res)` from `server.js`.
 - Do not import browser/frontend code into Vercel functions.
 - `server.js` must remain usable both as local server and as exported API handler.
